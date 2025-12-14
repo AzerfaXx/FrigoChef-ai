@@ -1,4 +1,4 @@
-import { FunctionDeclaration, GoogleGenAI, Modality, Type } from "@google/genai";
+import { FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, Type } from "@google/genai";
 import { Ingredient, ShoppingItem } from "../types";
 
 // Initialize the client
@@ -158,6 +158,15 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
     reader.readAsDataURL(blob);
   });
 };
+
+function encode(bytes: Uint8Array) {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
 
 // --- 1. Text Chat & Recipe Generation (Complex Tasks) ---
 
@@ -375,7 +384,7 @@ export const stopAudio = () => {
     }
 };
 
-// --- 3. Speech-to-Text (Transcribe) ---
+// --- 3. Speech-to-Text (Legacy Blob Transcribe) ---
 
 export const transcribeUserAudio = async (audioBlob: Blob): Promise<string> => {
   const ai = getAiClient();
@@ -387,16 +396,139 @@ export const transcribeUserAudio = async (audioBlob: Blob): Promise<string> => {
       parts: [
         {
           inlineData: {
-            mimeType: "audio/wav", 
+            mimeType: audioBlob.type.startsWith('audio/') ? audioBlob.type : "audio/wav", 
             data: base64Audio
           }
         },
         {
-          text: "Transcris cet audio en français. Ne réponds pas à la question, transcris seulement ce qui est dit."
+          text: `
+          Transcris cet audio en français. 
+          CONTEXTE : Ceci est une application de cuisine. L'utilisateur dicte des ingrédients (ex: "lait", "oeufs", "pâtes") ou demande des recettes.
+          IMPORTANT : Corrige les homonymes selon ce contexte (ex: ne jamais écrire "laid" mais "lait", "pattes" mais "pâtes").
+          Ne réponds pas à la question, transcris seulement ce qui est dit mot pour mot.
+          `
         }
       ]
     }
   });
 
   return response.text?.trim() || "";
+};
+
+// --- 4. REAL-TIME Live Transcription (Streaming) ---
+
+export const startLiveTranscription = async (
+    onTranscriptionUpdate: (text: string) => void,
+    onError: (err: any) => void
+) => {
+    const ai = getAiClient();
+    
+    // Setup Audio Context for recording
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1,
+        sampleRate: 16000,
+    }});
+    
+    const source = audioContext.createMediaStreamSource(stream);
+    const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+    
+    // Connect to Live API
+    // Using gemini-2.5-flash-native-audio-preview-09-2025 as recommended for real-time
+    const sessionPromise = ai.live.connect({
+        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+        callbacks: {
+            onopen: () => {
+                console.log("Live Session Connected");
+            },
+            onmessage: (message: LiveServerMessage) => {
+                // We only care about transcription here
+                if (message.serverContent?.inputTranscription) {
+                    const text = message.serverContent.inputTranscription.text;
+                    if (text) {
+                        onTranscriptionUpdate(text);
+                    }
+                }
+            },
+            onclose: () => {
+                console.log("Live Session Closed");
+            },
+            onerror: (err) => {
+                console.error("Live Session Error", err);
+                onError(err);
+            }
+        },
+        config: {
+            responseModalities: [Modality.AUDIO], 
+            speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+            },
+            // SYSTEM INSTRUCTION ULTIME POUR LE CONTEXTE CULINAIRE
+            systemInstruction: `
+            ROLE: Tu es le moteur d'audition d'un grand chef cuisinier français. Ta seule mission est la TRANSCRIPTION FIDÈLE MAIS INTELLIGENTE.
+
+            OBJECTIF ABSOLU: 
+            Transcrire l'audio de l'utilisateur en texte français en appliquant un BIAIS COGNITIF CULINAIRE EXTRÊME pour résoudre les homonymes.
+
+            RÈGLES DE DÉSAMBIGUÏSATION PHONÉTIQUE (PRIORITÉ CULINAIRE MAXIMALE) :
+            1. SON /stɛk/ ou /stik/ => ÉCRIRE "steak" (Interdiction formelle d'écrire "stick", "stique" ou "stak").
+            2. SON /pat/ => ÉCRIRE "pâtes" (Interdiction d'écrire "pattes", "patte" ou "pâte" au singulier si pluriel entendu).
+            3. SON /lɛ/ => ÉCRIRE "lait" (Interdiction d'écrire "laid", "les" ou "l'ai" si isolé).
+            4. SON /tɛ̃/ => ÉCRIRE "thym" (Interdiction d'écrire "teint", "tain" ou "tin").
+            5. SON /amɑ̃d/ => ÉCRIRE "amande" (Interdiction d'écrire "amende").
+            6. SON /bazilik/ => ÉCRIRE "basilic" (Interdiction d'écrire "basilique").
+            7. SON /o/ => ÉCRIRE "eau" (Interdiction d'écrire "haut" ou "os").
+            8. SON /pwa/ => ÉCRIRE "pois" (ex: petits pois) ou "poire" selon la fin, jamais "poids".
+            9. SON /sɛl/ => ÉCRIRE "sel" (Interdiction d'écrire "celle", "selle").
+            10. SON /kuri/ => ÉCRIRE "curry".
+
+            NETTOYAGE ET FORMATAGE :
+            - Supprime impitoyablement les hésitations : "euh", "hmmm", "ben", "fin", "du coup".
+            - Si l'utilisateur bafouille ("aj.. ajoute du.. du sel"), écris le résultat propre : "Ajoute du sel."
+            - Commence toujours par une Majuscule.
+            - Termine les phrases logiques par un point.
+
+            EXEMPLES DE TRANSFORMATION :
+            Audio: "euh je veux rajouter un stick et des pattes" -> Résultat: "Je veux rajouter un steak et des pâtes."
+            Audio: "il faut du teint et du laurier" -> Résultat: "Il faut du thym et du laurier."
+            Audio: "c'est pour faire des lazagnes" -> Résultat: "C'est pour faire des lasagnes."
+            `,
+            inputAudioTranscription: {}, 
+        }
+    });
+
+    // Process audio chunks and send to Gemini
+    scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+        const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+        
+        // Convert Float32 to Int16 PCM
+        const l = inputData.length;
+        const int16 = new Int16Array(l);
+        for (let i = 0; i < l; i++) {
+            int16[i] = inputData[i] * 32768;
+        }
+        
+        const base64Data = encode(new Uint8Array(int16.buffer));
+
+        sessionPromise.then((session) => {
+            session.sendRealtimeInput({
+                media: {
+                    mimeType: "audio/pcm;rate=16000",
+                    data: base64Data
+                }
+            });
+        });
+    };
+
+    source.connect(scriptProcessor);
+    scriptProcessor.connect(audioContext.destination);
+
+    // Return cleanup function
+    return () => {
+        scriptProcessor.disconnect();
+        source.disconnect();
+        stream.getTracks().forEach(t => t.stop());
+        audioContext.close();
+        sessionPromise.then(session => session.close());
+    };
 };

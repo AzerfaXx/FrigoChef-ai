@@ -6,6 +6,7 @@ import {
   generateSpeech, 
   base64ToBytes, 
   pcmToAudioBuffer,
+  startLiveTranscription,
 } from '../services/geminiService';
 import { Mic, Send, Bot, Sparkles, Volume2, VolumeX, Globe, Loader2, StopCircle, ChefHat, X, ArrowRight } from 'lucide-react';
 
@@ -49,14 +50,10 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isAutoPlay, setIsAutoPlay] = useState(true);
 
-  // Dictation State
-  const [isListening, setIsListening] = useState(false);
-  const isListeningRef = useRef(false); // Ref to track intent across closures
-  const recognitionRef = useRef<any>(null);
-  
-  // Manual Continuous Logic Refs
-  const baseInputRef = useRef(''); // The committed text (before current sentence)
-  const currentChunkRef = useRef(''); // The current sentence being spoken
+  // Dictation State (Live API)
+  const [isRecording, setIsRecording] = useState(false);
+  const [isConnectingLive, setIsConnectingLive] = useState(false);
+  const stopLiveSessionRef = useRef<(() => void) | null>(null);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -129,114 +126,62 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       }
   }, [isAutoPlay]);
 
-  // --- Speech Recognition Setup ---
-  useEffect(() => {
-    // Check support
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      // Disable native continuous to fix Android duplication bugs
-      recognition.continuous = false; 
-      recognition.interimResults = true; 
-      recognition.lang = 'fr-FR';
-
-      recognition.onstart = () => {
-          setIsListening(true);
-          isListeningRef.current = true;
-      };
-
-      recognition.onresult = (event: any) => {
-        // In continuous=false mode, we typically get one result at index 0
-        const transcript = event.results[0][0].transcript;
-        
-        // Capitalize the first letter of the chunk
-        const formatted = transcript.charAt(0).toUpperCase() + transcript.slice(1);
-        
-        // Store current ephemeral chunk
-        currentChunkRef.current = formatted;
-        
-        // Update UI: Committed Base + Current Chunk
-        const base = baseInputRef.current;
-        const separator = (base.trim() && formatted.trim()) ? ' ' : '';
-        setInputValue(base + separator + formatted);
-
-        // Auto-scroll textarea
-        if (textareaRef.current) {
-            textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        // Ignore benign errors
-        if (event.error === 'no-speech' || event.error === 'aborted') {
-            return;
-        }
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-        isListeningRef.current = false;
-      };
-
-      recognition.onend = () => {
-        if (isListeningRef.current) {
-            // If user didn't stop manually, we restart to simulate continuous mode
-            // First, commit the chunk to base
-            if (currentChunkRef.current) {
-                const base = baseInputRef.current;
-                const separator = (base.trim() && currentChunkRef.current.trim()) ? ' ' : '';
-                baseInputRef.current = base + separator + currentChunkRef.current;
-                currentChunkRef.current = '';
+  // --- Audio Recording & Transcription Setup (Live API) ---
+  
+  const startRecording = async () => {
+    try {
+        setIsConnectingLive(true);
+        const cleanup = await startLiveTranscription(
+            (text) => {
+                setInputValue(prev => prev + text);
+                // Auto-scroll input
+                if (textareaRef.current) {
+                    textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+                }
+            },
+            (err) => {
+                console.error("Transcription error", err);
+                setIsRecording(false);
+                setIsConnectingLive(false);
+                alert("Erreur de connexion audio. Réessayez.");
             }
-            
-            try {
-                recognition.start();
-            } catch (e) {
-                // If start fails (e.g. lost focus), stop everything
-                setIsListening(false);
-                isListeningRef.current = false;
-            }
-        } else {
-            // User stopped manually
-            setIsListening(false);
-        }
-      };
-
-      recognitionRef.current = recognition;
-    }
-
-    return () => {
-        if (recognitionRef.current) {
-            try {
-                recognitionRef.current.abort();
-            } catch (e) {}
-        }
-    }
-  }, []);
-
-  const toggleDictation = () => {
-    if (!recognitionRef.current) {
-        alert("La reconnaissance vocale n'est pas supportée sur ce navigateur.");
-        return;
-    }
-
-    if (isListeningRef.current) {
-      // Stop manually
-      isListeningRef.current = false;
-      recognitionRef.current.stop();
-    } else {
-       // Start
-       baseInputRef.current = inputValue; // Capture what user typed so far
-       currentChunkRef.current = '';
-       
-       try {
-          recognitionRef.current.start();
-          // Focus input
-          setTimeout(() => textareaRef.current?.focus(), 100);
-       } catch (e) {
-          console.warn("Recognition start failed", e);
-       }
+        );
+        stopLiveSessionRef.current = cleanup;
+        setIsRecording(true);
+        setIsConnectingLive(false);
+    } catch (err) {
+        console.error("Error accessing microphone or API", err);
+        setIsRecording(false);
+        setIsConnectingLive(false);
+        alert("Impossible d'accéder au micro ou à l'API.");
     }
   };
+
+  const stopRecording = () => {
+      if (stopLiveSessionRef.current) {
+          stopLiveSessionRef.current();
+          stopLiveSessionRef.current = null;
+      }
+      setIsRecording(false);
+      setIsConnectingLive(false);
+  };
+
+  const toggleRecording = () => {
+      if (isRecording || isConnectingLive) {
+          stopRecording();
+      } else {
+          startRecording();
+      }
+  };
+
+  // Ensure cleanup on unmount
+  useEffect(() => {
+      return () => {
+          if (stopLiveSessionRef.current) {
+              stopLiveSessionRef.current();
+          }
+      }
+  }, []);
 
   // --- Tool Execution Logic ---
   const handleToolCall = async (name: string, args: any) => {
@@ -386,12 +331,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
     const textToSend = manualText || inputValue;
     if (!textToSend.trim()) return;
 
-    // Stop listening when sending
-    if (isListeningRef.current) {
-        isListeningRef.current = false;
-        recognitionRef.current?.stop();
-    }
-
     // CRITICAL: Initialize/Resume Audio Context on user gesture to avoid mobile delays
     if (isAutoPlayRef.current) {
         const ctx = initAudioContext();
@@ -446,8 +385,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                sentenceBuffer += textChunk;
                
                // INSTANT START LOGIC (LOW LATENCY)
-               // Instead of waiting for a full sentence punctuation, we start sooner to reduce perceived latency.
-               // We look for a reasonable chunk length (> 25 chars) and a space to cut cleanly.
                if (!firstChunkProcessed && sentenceBuffer.length > 25) { 
                    const lastSpace = sentenceBuffer.lastIndexOf(' ');
                    if (lastSpace > 0) {
@@ -458,23 +395,19 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                    }
                }
 
-               // Enhanced Sentence Detection for subsequent parts:
-               // Matches: Punctuation + space, Newlines (for lists), or Colons + space
                const sentenceRegex = /^(.+?([.!?]\s|[\n]+|[:]\s))/;
-               
                let match;
                while ((match = sentenceBuffer.match(sentenceRegex))) {
                    const fullSentence = match[1];
                    if (fullSentence.trim().length > 0) { 
                        queueAudioChunk(fullSentence);
                        sentenceBuffer = sentenceBuffer.substring(fullSentence.length);
-                       firstChunkProcessed = true; // Ensure we mark as processed if we hit a sentence break
+                       firstChunkProcessed = true;
                    } else {
                        sentenceBuffer = sentenceBuffer.substring(fullSentence.length);
                    }
                }
 
-               // Safety flush if buffer gets too big
                if (sentenceBuffer.length > 150) {
                   const lastSpace = sentenceBuffer.lastIndexOf(' ');
                   if (lastSpace > 0) {
@@ -486,7 +419,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                }
 
                const textToRender = accumulatedText;
-               // Delay text slightly to allow audio to fetch, enhancing "sync" feel
                setTimeout(() => {
                     setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: textToRender } : m));
                }, 100);
@@ -682,39 +614,51 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
             <div className="flex gap-2 items-end mt-2">
                 <button
                     type="button"
-                    onClick={toggleDictation}
+                    onClick={toggleRecording}
                     className={`p-3.5 rounded-full transition-all active:scale-95 flex-shrink-0 flex items-center justify-center shadow-sm cursor-pointer ${
-                        isListening 
-                        ? 'bg-emerald-500 text-white animate-pulse ring-4 ring-emerald-100 dark:ring-emerald-900/30' 
+                        isRecording 
+                        ? 'bg-rose-500 text-white animate-pulse ring-4 ring-rose-100 dark:ring-rose-900/30' 
+                        : isConnectingLive
+                        ? 'bg-amber-100 text-amber-600 cursor-wait'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                     }`}
                 >
-                    {isListening ? <StopCircle size={22} /> : <Mic size={22} />}
+                    {isRecording ? <StopCircle size={22} /> : isConnectingLive ? <Loader2 size={22} className="animate-spin" /> : <Mic size={22} />}
                 </button>
 
-                <div className={`flex-1 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-all ${isListening ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/10' : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10'}`}>
-                    {isListening && (
-                        <div className="flex gap-1 ml-3 h-4 items-center animate-in fade-in zoom-in duration-300">
-                            <div className="w-1 bg-emerald-500 rounded-full animate-[pulse_0.8s_ease-in-out_infinite] h-2"></div>
-                            <div className="w-1 bg-emerald-500 rounded-full animate-[pulse_1.2s_ease-in-out_infinite] h-4"></div>
-                            <div className="w-1 bg-emerald-500 rounded-full animate-[pulse_1.0s_ease-in-out_infinite] h-3"></div>
+                <div className={`flex-1 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-all ${isRecording ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/10' : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10'}`}>
+                    {isRecording ? (
+                        <div className="flex-1 flex items-center gap-2 h-[52px] px-4">
+                             <div className="relative flex h-3 w-3 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                            </div>
+                            <input 
+                                value={inputValue}
+                                readOnly
+                                className="flex-1 bg-transparent border-none outline-none text-slate-700 dark:text-slate-200 font-medium truncate"
+                                placeholder="Je vous écoute..."
+                            />
                         </div>
+                    ) : (
+                        <textarea
+                            ref={textareaRef}
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                            placeholder={isConnectingLive ? "Connexion..." : "Demandez une recette..."}
+                            disabled={isConnectingLive}
+                            rows={1}
+                            className={`flex-1 p-3.5 max-h-32 min-h-[52px] bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium resize-none transition-all ${isConnectingLive ? 'opacity-50' : ''}`}
+                        />
                     )}
-                    <textarea
-                        ref={textareaRef}
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend();
-                            }
-                        }}
-                        placeholder={isListening ? "Je vous écoute..." : "Demandez une recette..."}
-                        rows={1}
-                        className={`flex-1 p-3.5 max-h-32 min-h-[52px] bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium resize-none transition-all ${isListening ? 'placeholder:text-emerald-500 font-semibold' : ''}`}
-                    />
-                    {inputValue.trim() && (
+                    
+                    {inputValue.trim() && !isRecording && (
                     <button 
                         type="button"
                         onClick={() => setInputValue('')}
@@ -728,7 +672,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                 <button 
                     type="button"
                     onClick={() => handleSend()}
-                    disabled={isLoading || !inputValue.trim()}
+                    disabled={isLoading || !inputValue.trim() || isRecording || isConnectingLive}
                     className="bg-emerald-600 text-white p-3.5 rounded-full hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-lg shadow-emerald-200 dark:shadow-none flex-shrink-0 cursor-pointer"
                 >
                     <Send size={20} className={isLoading ? 'opacity-0' : 'opacity-100'} />
