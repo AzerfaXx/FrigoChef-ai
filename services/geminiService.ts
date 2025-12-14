@@ -80,7 +80,7 @@ const updateInventoryTool: FunctionDeclaration = {
 
 const addToShoppingListTool: FunctionDeclaration = {
   name: 'ajouterAuPanier',
-  description: 'Ajouter des articles à la LISTE DE COURSES.',
+  description: 'Ajouter des articles à la LISTE DE COURSES. Utiliser si l\'utilisateur dit "Ajoute", "Il faut", "Besoin de" SANS mentionner de date de péremption.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -158,6 +158,40 @@ function encode(bytes: Uint8Array) {
     return btoa(binary);
 }
 
+// --- AUDIO DOWNSAMPLING HELPER (Critical for Mobile Web) ---
+// Mobile mics run at 44.1/48kHz. Gemini Live needs 16kHz.
+// Sending 48kHz as 16kHz makes audio sound like chipmunks and breaks STT.
+function downsampleBuffer(buffer: Float32Array, inputSampleRate: number, outputSampleRate: number): Int16Array {
+    if (inputSampleRate === outputSampleRate) {
+        const result = new Int16Array(buffer.length);
+        for (let i = 0; i < buffer.length; i++) {
+            result[i] = buffer[i] * 32768;
+        }
+        return result;
+    }
+
+    const sampleRateRatio = inputSampleRate / outputSampleRate;
+    const newLength = Math.round(buffer.length / sampleRateRatio);
+    const result = new Int16Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+
+    while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+        // Simple averaging for downsampling
+        let accum = 0, count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+            accum += buffer[i];
+            count++;
+        }
+        
+        result[offsetResult] = Math.min(1, Math.max(-1, accum / count)) * 32768;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+}
+
 // --- 1. Text Chat & Recipe Generation ---
 
 export const generateRecipePlan = async (
@@ -203,7 +237,6 @@ export const chatWithChefStream = async function* (
     ? shoppingList.map(i => `- ${i.name}`).join('\n')
     : "Vide.";
   
-  // DATE DU JOUR PRÉCISE
   const today = new Date();
   const dayName = today.toLocaleDateString('fr-FR', { weekday: 'long' });
   const dayNum = today.getDate();
@@ -216,33 +249,28 @@ export const chatWithChefStream = async function* (
     Tu es FrigoChef, l'assistant culinaire INTELLIGENT.
     
     [DATE ACTUELLE] : ${fullDate} (ISO: ${isoDate}).
-    C'est ta référence ABSOLUE.
-    - Pour "périme dans 10 jours", le calcul est : ${isoDate} + 10 jours.
-    - Pour "périme mardi prochain", trouve la date exacte du prochain mardi.
-
-    [RÈGLES D'INTENTION CRITIQUES] :
     
+    [RÈGLE D'OR - INTENTION UTILISATEUR] :
+    Tu dois absolument distinguer entre STOCK et LISTE DE COURSES.
+
     1. **AJOUTER AU STOCK (Inventaire)** :
-       - Si l'utilisateur dit : "J'ai acheté...", "J'ai...", "Mets au frigo...".
-       - OU SI l'utilisateur dit "Ajoute..." ET mentionne une DATE ou "PÉRIMER".
-         > Ex: "Ajoute des yaourts qui périment le 12" -> STOCK (car date présente).
+       - Déclencheur 1 : L'utilisateur dit "J'ai...", "Il y a...", "J'ai acheté...".
+       - Déclencheur 2 (LE PLUS IMPORTANT) : L'utilisateur dit "Ajoute..." ET mentionne une DATE ou "PÉRIMER".
+         > Ex: "Ajoute des yaourts qui périment demain" -> STOCK (car date précise).
          > Ex: "Ajoute du lait péremption dans 3 jours" -> STOCK.
 
     2. **AJOUTER À LA LISTE (Courses)** :
-       - Si l'utilisateur dit : "Ajoute...", "Il faut...", "Besoin de...".
-       - SANS mention de date ou péremption.
-         > Ex: "Ajoute des yaourts" -> LISTE.
-         > Ex: "Il faut du lait" -> LISTE.
+       - Déclencheur : L'utilisateur dit "Ajoute...", "Il faut...", "Besoin de..." SANS mention de date.
+         > Ex: "Ajoute des yaourts" -> LISTE DE COURSES (car pas de date).
+         > Ex: "Il faut du lait" -> LISTE DE COURSES.
 
     [INTELLIGENCE PRODUIT] :
-    - **Catégorie** : Déduis-la TOUJOURS. 
-    - **Quantité** : Si l'utilisateur ne dit pas "combien", mets "1" par défaut.
+    - Catégorie : Déduis-la TOUJOURS (viande, produit frais, épicerie...).
+    - Quantité : Mets "1" par défaut si non précisé.
+    - Dates : Calcule toujours la date ISO précise (ex: "dans 3 jours" = ${isoDate} + 3 jours).
 
-    [CONTEXTE STOCK] :
-    ${inventoryContext}
-    
-    [CONTEXTE LISTE] :
-    ${shoppingContext}
+    [CONTEXTE STOCK] : ${inventoryContext}
+    [CONTEXTE LISTE] : ${shoppingContext}
 
     Sois concis.
   `;
@@ -330,18 +358,31 @@ export const stopAudio = () => {
     if (globalSource) { try { globalSource.stop(); } catch (e) {} globalSource = null; }
 };
 
-// --- 3. Live Transcription ---
+// --- 3. Live Transcription (With Downsampling) ---
 
 export const startLiveTranscription = async (
     onTranscriptionUpdate: (text: string) => void,
     onError: (err: any) => void
 ) => {
     const ai = getAiClient();
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 }});
+    
+    // Create AudioContext first to get the device's native sample rate (often 44100 or 48000 on mobile)
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const audioContext = new AudioContextClass();
+    
+    // Request microphone access
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { 
+            channelCount: 1, 
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        }
+    });
     
     const source = audioContext.createMediaStreamSource(stream);
     const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+    const TARGET_SAMPLE_RATE = 16000;
     
     const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -360,24 +401,23 @@ export const startLiveTranscription = async (
             responseModalities: [Modality.AUDIO], 
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
             systemInstruction: `
-            ROLE: Transcription vocale EXPERTE pour cuisine.
+            ROLE: Transcription vocale phonétique HAUTE PRÉCISION.
             
-            [RÈGLES PHONÉTIQUES ABSOLUES] :
-            Tu dois CORRIGER tout ce qui ressemble à des aliments mais qui est mal prononcé ou mal compris.
-            - "Style" / "Stick" -> **STEAK**
-            - "Pattes" / "Pote" -> **PÂTES** ou **PATATES**
-            - "Laid" / "Les" -> **LAIT**
-            - "Celle" -> **SEL**
-            - "Peau" / "Pot" -> **POT** ou **EAU** (selon contexte)
-            - "Cour gilet" -> **COURGETTE**
-            - "A mande" -> **AMANDE**
+            [CONTEXTE] : Cuisine, Frigo, Courses.
+            
+            [CORRECTIONS PHONÉTIQUES OBLIGATOIRES] :
+            - "Style", "Stick", "Stique" -> Écris **STEAK**.
+            - "Pattes", "Pote" -> Écris **PÂTES** ou **PATATES**.
+            - "Laid", "Les" -> Écris **LAIT**.
+            - "Celle" -> Écris **SEL**.
+            - "Peau" -> Écris **POT** ou **EAU**.
+            - "Cour gilet" -> Écris **COURGETTE**.
 
-            [FORMATAGE INTELLIGENT] :
-            - Si l'utilisateur dit "périme le douze", écris "périme le 12".
-            - Si l'utilisateur dit "trois oeufs", écris "3 oeufs".
-            - Si l'utilisateur dit "ajoute des...", écris "Ajoute des...".
-            
-            Ton seul but est de fournir une transcription textuelle PARFAITE pour que l'IA de gestion puisse comprendre l'intention (Stock vs Liste) juste après.
+            [RÈGLES DE SORTIE] :
+            - Transcris EXACTEMENT ce que l'utilisateur dit, mais corrige les mots alimentaires mal compris.
+            - N'ajoute pas de ponctuation excessive.
+            - Formatage des dates : "le 12", "demain", "dans 3 jours".
+            - Formatage des chiffres : "3 pommes", "500g".
             `,
             inputAudioTranscription: {}, 
         }
@@ -385,13 +425,12 @@ export const startLiveTranscription = async (
 
     scriptProcessor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
-        const l = inputData.length;
-        const int16 = new Int16Array(l);
-        for (let i = 0; i < l; i++) { int16[i] = inputData[i] * 32768; }
-        const base64Data = encode(new Uint8Array(int16.buffer));
+        // CRITICAL: Downsample from device rate (e.g. 48000) to API rate (16000)
+        const downsampledInt16 = downsampleBuffer(inputData, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+        const base64Data = encode(new Uint8Array(downsampledInt16.buffer));
 
         sessionPromise.then((session) => {
-            session.sendRealtimeInput({ media: { mimeType: "audio/pcm;rate=16000", data: base64Data } });
+            session.sendRealtimeInput({ media: { mimeType: `audio/pcm;rate=${TARGET_SAMPLE_RATE}`, data: base64Data } });
         });
     };
 
