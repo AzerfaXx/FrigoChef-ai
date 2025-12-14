@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { User, Moon, Sun, Camera, Settings, Shield, ToggleLeft, ToggleRight, Smartphone, Share, X, MoreVertical, Download, HelpCircle, Flame, Bell } from 'lucide-react';
+import { User, Moon, Sun, Camera, Settings, Shield, ToggleLeft, ToggleRight, Smartphone, Share, X, MoreVertical, Download, HelpCircle, Flame, Bell, Key } from 'lucide-react';
 
 interface Props {
   userProfile: UserProfile;
@@ -17,6 +17,10 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   const [newName, setNewName] = useState(userProfile.name);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // API Key State
+  const [apiKey, setApiKey] = useState('');
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  
   // PWA State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -27,6 +31,10 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   const [privateMode, setPrivateMode] = useState(false);
 
   useEffect(() => {
+    // Load stored key
+    const stored = localStorage.getItem('fc_api_key');
+    if (stored) setApiKey(stored);
+
     // 1. Detect if app is running in standalone mode (Installed App)
     const checkStandalone = () => {
         const mq = window.matchMedia('(display-mode: standalone)');
@@ -50,18 +58,15 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
       e.preventDefault();
       setDeferredPrompt(e);
       (window as any).deferredPrompt = e;
-      console.log("Install prompt captured in Profile");
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     
-    // Listen for successful installation
     const handleAppInstalled = () => {
       setDeferredPrompt(null);
       (window as any).deferredPrompt = null;
       setIsStandalone(true);
       setShowInstallInstructions(false);
-      console.log("App installed successfully");
     };
 
     window.addEventListener('appinstalled', handleAppInstalled);
@@ -75,19 +80,14 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
 
   const handleInstallClick = () => {
     if (deferredPrompt) {
-      // Android/Desktop: Trigger the native prompt
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then((choiceResult: any) => {
         if (choiceResult.outcome === 'accepted') {
-          console.log('User accepted the install prompt');
           setDeferredPrompt(null);
           (window as any).deferredPrompt = null;
-        } else {
-          console.log('User dismissed the install prompt');
         }
       });
     } else {
-        // iOS or Browser preventing prompt: Show manual instructions
         setShowInstallInstructions(true);
     }
   };
@@ -95,6 +95,12 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   const saveName = () => {
     setUserProfile({ ...userProfile, name: newName });
     setIsEditingName(false);
+  };
+
+  const saveApiKey = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setApiKey(val);
+      localStorage.setItem('fc_api_key', val);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,7 +116,6 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
 
   const toggleNotifications = async () => {
     if (!notificationsEnabled) {
-        // Enable logic
         if (!('Notification' in window)) {
             alert("Les notifications ne sont pas supportées par ce navigateur.");
             return;
@@ -121,21 +126,19 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
             setNotificationsEnabled(true);
             new Notification('Notifications activées ! 🔔', {
                 body: 'Vous serez alerté si vos produits arrivent à péremption.',
-                icon: '/icon.png'
+                icon: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png'
             });
         } else {
             alert("Veuillez autoriser les notifications dans les paramètres de votre appareil.");
             setNotificationsEnabled(false);
         }
     } else {
-        // Disable logic
         setNotificationsEnabled(false);
     }
   };
 
   // --- Dynamic Streak Style Logic ---
   const getStreakStyle = (days: number) => {
-    // LEVEL ULTIME : 100+ (Supernova)
     if (days >= 100) {
       return {
         wrapper: "bg-slate-900 border-blue-400/50 shadow-[0_0_20px_rgba(96,165,250,0.5)]",
@@ -150,10 +153,6 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
         { w: "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-100 dark:border-yellow-800", i: "text-yellow-500 fill-yellow-500", t: "text-yellow-600 dark:text-yellow-400" },
         { w: "bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800", i: "text-red-500 fill-red-500", t: "text-red-600 dark:text-red-400" },
         { w: "bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-800", i: "text-purple-500 fill-purple-500", t: "text-purple-600 dark:text-purple-400" },
-        { w: "bg-pink-50 dark:bg-pink-900/20 border-pink-100 dark:border-pink-800", i: "text-pink-500 fill-pink-500", t: "text-pink-600 dark:text-pink-400" },
-        { w: "bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-800", i: "text-indigo-500 fill-indigo-500", t: "text-indigo-600 dark:text-indigo-400" },
-        { w: "bg-cyan-50 dark:bg-cyan-900/20 border-cyan-100 dark:border-cyan-800", i: "text-cyan-500 fill-cyan-500", t: "text-cyan-600 dark:text-cyan-400" },
-        { w: "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800", i: "text-emerald-500 fill-emerald-500", t: "text-emerald-600 dark:text-emerald-400" },
     ];
     const current = palettes[level % palettes.length];
     
@@ -169,44 +168,26 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 relative overflow-hidden">
       
-      {/* Install Instructions Modal (Optimized for Mobile) */}
+      {/* Install Instructions Modal */}
       {showInstallInstructions && (
           <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-300">
               <div className="bg-white dark:bg-slate-800 w-full max-w-[320px] rounded-3xl p-6 shadow-2xl relative flex flex-col items-center">
                   <button onClick={() => setShowInstallInstructions(false)} className="absolute top-4 right-4 p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
                       <X size={16} />
                   </button>
-                  
                   <div className="w-14 h-14 bg-slate-100 dark:bg-slate-700 rounded-2xl flex items-center justify-center mb-4">
                       {isIOS ? <Share size={28} className="text-blue-500" /> : <MoreVertical size={28} className="text-slate-500" />}
                   </div>
-                  
                   <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 text-center">Installer l'app</h3>
-                  
                   <div className="w-full bg-slate-50 dark:bg-slate-900 p-4 rounded-xl space-y-3">
-                      {isIOS ? (
-                          <>
-                            <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-[10px] shrink-0">1</span>
-                                <span>Appuyez sur <strong className="text-blue-500">Partager</strong></span>
-                            </p>
-                            <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                                <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-[10px] shrink-0">2</span>
-                                <span><strong className="whitespace-nowrap">Sur l'écran d'accueil</strong></span>
-                            </p>
-                          </>
-                      ) : (
-                          <>
-                            <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-[10px] shrink-0">1</span>
-                                <span>Ouvrez le menu (3 points)</span>
-                            </p>
-                            <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-[10px] shrink-0">2</span>
-                                <span><strong>Installer l'application</strong></span>
-                            </p>
-                          </>
-                      )}
+                      <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+                           <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-[10px] shrink-0">1</span>
+                           <span>Ouvrez le menu du navigateur</span>
+                      </p>
+                      <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+                           <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-[10px] shrink-0">2</span>
+                           <span>Sélectionnez "Ajouter à l'écran d'accueil"</span>
+                      </p>
                   </div>
               </div>
           </div>
@@ -277,11 +258,44 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
       {/* Settings Options - Scrollable Area */}
       <div className="flex-1 overflow-y-auto p-5 pb-24 space-y-4">
 
+         {/* API KEY SECTION (CRITICAL FOR USER) */}
+         <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900 p-4 rounded-2xl">
+            <div 
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={() => setShowKeyInput(!showKeyInput)}
+            >
+                <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 flex items-center justify-center shrink-0">
+                    <Key size={18} />
+                </div>
+                <div className="flex-1">
+                    <p className="font-bold text-sm text-slate-800 dark:text-slate-100">Clé API Google</p>
+                    <p className="text-[10px] text-amber-600 dark:text-amber-500">
+                        {apiKey ? 'Clé configurée (Masquée)' : '⚠️ Requise pour utiliser l\'app'}
+                    </p>
+                </div>
+            </div>
+            
+            {showKeyInput && (
+                <div className="mt-3 animate-in fade-in slide-in-from-top-2">
+                    <input 
+                        type="password"
+                        value={apiKey}
+                        onChange={saveApiKey}
+                        placeholder="Collez votre clé API ici..."
+                        className="w-full p-2 text-sm border border-amber-200 dark:border-amber-800 rounded-lg outline-none focus:border-amber-500 bg-white dark:bg-slate-800 text-slate-700 dark:text-white"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-2">
+                        Obtenez une clé gratuite sur <a href="https://aistudiogoogle.com/app/apikey" target="_blank" className="underline text-blue-500">Google AI Studio</a>. La clé est stockée uniquement sur votre téléphone.
+                    </p>
+                </div>
+            )}
+         </div>
+
          {/* INSTALL APP BUTTON */}
          {!isStandalone && (
             <button 
                 onClick={handleInstallClick}
-                className={`w-full p-4 rounded-2xl shadow-lg flex items-center justify-between group active:scale-95 transition-all animate-in fade-in slide-in-from-top-2 ${
+                className={`w-full p-4 rounded-2xl shadow-lg flex items-center justify-between group active:scale-95 transition-all ${
                     deferredPrompt 
                     ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-emerald-200 dark:shadow-none' 
                     : 'bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-800 text-slate-800 dark:text-white'
@@ -313,8 +327,7 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
          
          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm divide-y divide-slate-100 dark:divide-slate-700/50">
              
-             {/* Notifications */}
-             <div className="p-4 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors active:bg-slate-100" onClick={toggleNotifications}>
+             <div className="p-4 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors" onClick={toggleNotifications}>
                  <div className="w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-500 flex items-center justify-center shrink-0">
                      <Bell size={18} />
                  </div>
@@ -327,8 +340,7 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
                  </div>
              </div>
 
-             {/* Privacy */}
-             <div className="p-4 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors active:bg-slate-100" onClick={() => setPrivateMode(!privateMode)}>
+             <div className="p-4 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors" onClick={() => setPrivateMode(!privateMode)}>
                  <div className="w-9 h-9 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-500 flex items-center justify-center shrink-0">
                      <Shield size={18} />
                  </div>
@@ -340,25 +352,11 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
                     {privateMode ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
                  </div>
              </div>
-             
-             {/* General Prefs */}
-             <div className="p-4 flex items-center gap-3">
-                 <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-500 flex items-center justify-center shrink-0">
-                     <Settings size={18} />
-                 </div>
-                 <div className="flex-1 min-w-0">
-                     <p className="font-bold text-sm text-slate-700 dark:text-slate-200">Unités</p>
-                     <p className="text-[10px] text-slate-400 truncate">Système métrique</p>
-                 </div>
-                 <div className="text-slate-300">
-                    <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 px-2 py-0.5 rounded">Auto</span>
-                 </div>
-             </div>
          </div>
          
          <div className="text-center pt-4">
              <p className="text-[10px] text-slate-300 dark:text-slate-600">
-                 FrigoChef AI v1.3.2
+                 FrigoChef AI v1.4.0 (Secure)
              </p>
          </div>
       </div>

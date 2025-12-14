@@ -3,8 +3,20 @@ import { Ingredient, ShoppingItem } from "../types";
 
 // Initialize the client
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY || "AIzaSyDpF6Q7i2BQbC1CovL01il0cZNf6ooaWiA";
-  if (!apiKey) throw new Error("API_KEY not found in environment");
+  // 1. Check Environment (Deployment)
+  let apiKey = process.env.API_KEY;
+  
+  // 2. Check Local Storage (User Settings)
+  if (!apiKey || apiKey.startsWith("AIzaSy...LEAKED")) {
+      const storedKey = localStorage.getItem('fc_api_key');
+      if (storedKey) apiKey = storedKey;
+  }
+
+  // 3. Fallback / Error
+  if (!apiKey) {
+      throw new Error("API_KEY_MISSING");
+  }
+  
   return new GoogleGenAI({ apiKey });
 };
 
@@ -158,8 +170,6 @@ function encode(bytes: Uint8Array) {
 }
 
 // --- AUDIO DOWNSAMPLING HELPER ---
-// Simplified "Decimation" strategy for mobile performance.
-// Converts arbitrary input rate (44.1k/48k) to exactly 16000Hz.
 function downsampleTo16k(input: Float32Array, sampleRate: number): Int16Array {
     if (sampleRate === 16000) {
         const res = new Int16Array(input.length);
@@ -171,7 +181,6 @@ function downsampleTo16k(input: Float32Array, sampleRate: number): Int16Array {
     const result = new Int16Array(newLength);
     for (let i = 0; i < newLength; i++) {
         const offset = Math.floor(i * ratio);
-        // Clamp values to prevent distortion
         const val = Math.max(-1, Math.min(1, input[offset]));
         result[i] = val * 32767;
     }
@@ -259,7 +268,6 @@ export const chatWithChefStream = async function* (
 
 export const generateSpeech = async (text: string): Promise<string | null> => {
   const ai = getAiClient();
-  // Cleanup text to avoid TTS reading markdown symbols
   const cleanText = text
     .replace(/\*\*(.*?)\*\*/g, "$1") 
     .replace(/__(.*?)__/g, "$1") 
@@ -332,12 +340,18 @@ declare global {
 export const startLiveTranscription = async (
     onTranscriptionUpdate: (text: string) => void,
     onError: (err: any) => void,
-    onVolumeChange?: (volume: number) => void // New callback for visual feedback
+    onVolumeChange?: (volume: number) => void
 ) => {
-    const ai = getAiClient();
+    let ai;
+    try {
+        ai = getAiClient();
+    } catch (e) {
+        onError("API_KEY_MISSING");
+        return () => {};
+    }
+
     const TARGET_SAMPLE_RATE = 16000;
     
-    // 1. Initialize AudioContext immediately (User Interaction Context)
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     const audioContext = new AudioContextClass();
     
@@ -345,7 +359,6 @@ export const startLiveTranscription = async (
         try { await audioContext.resume(); } catch (e) { console.error("Could not resume audio context", e); }
     }
     
-    // 2. Get Media Stream
     let stream;
     try {
         stream = await navigator.mediaDevices.getUserMedia({ 
@@ -361,94 +374,79 @@ export const startLiveTranscription = async (
         return () => {};
     }
     
-    // 3. Setup Audio Graph
     const source = audioContext.createMediaStreamSource(stream);
-    
-    // Add GainNode to boost volume on mobile devices
     const gainNode = audioContext.createGain();
-    gainNode.gain.value = 1.5; // 150% volume boost
+    gainNode.gain.value = 1.5; 
     
-    // Use larger buffer (4096) for mobile stability
     const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
     window.__liveScriptProcessor = scriptProcessor;
 
-    // Connect graph: Source -> Gain -> Processor -> Dest
     source.connect(gainNode);
     gainNode.connect(scriptProcessor);
     scriptProcessor.connect(audioContext.destination);
 
-    // 4. Connect to Gemini Live
-    const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        callbacks: {
-            onopen: () => console.log("Live Connected"),
-            onmessage: (message: LiveServerMessage) => {
-                if (message.serverContent?.inputTranscription) {
-                    const text = message.serverContent.inputTranscription.text;
-                    if (text) onTranscriptionUpdate(text);
-                }
+    try {
+        const sessionPromise = ai.live.connect({
+            model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+            callbacks: {
+                onopen: () => console.log("Live Connected"),
+                onmessage: (message: LiveServerMessage) => {
+                    if (message.serverContent?.inputTranscription) {
+                        const text = message.serverContent.inputTranscription.text;
+                        if (text) onTranscriptionUpdate(text);
+                    }
+                },
+                onclose: () => console.log("Live Closed"),
+                onerror: (err) => onError(err)
             },
-            onclose: () => console.log("Live Closed"),
-            onerror: (err) => onError(err)
-        },
-        config: {
-            responseModalities: [Modality.AUDIO], 
-            generationConfig: {
-                temperature: 0, 
-            },
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-            systemInstruction: `
-            CONTEXTE : Transcription Speech-to-Text CULINAIRE.
-            
-            TA TÂCHE :
-            Écoute le flux audio et transcris EXACTEMENT ce qui est dit.
-            
-            DICTIONNAIRE OBLIGATOIRE :
-            - /pat/ -> "Pâtes"
-            - /stik/ -> "Steak"
-            - /patat/ -> "Patates"
-            - /lɛ/ -> "Lait"
-            - /sɛl/ -> "Sel"
-            
-            RÈGLES :
-            - Pas d'interprétation.
-            - Ignore les "euh".
-            - Transcris en français correct.
-            `,
-            inputAudioTranscription: {}, 
-        }
-    });
-
-    scriptProcessor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        
-        // Volume Calculation (RMS) for Visual Feedback
-        if (onVolumeChange) {
-            let sum = 0;
-            // optimize loop: only check every 4th sample for speed
-            for (let i = 0; i < inputData.length; i += 4) {
-                sum += inputData[i] * inputData[i];
+            config: {
+                responseModalities: [Modality.AUDIO], 
+                generationConfig: { temperature: 0 },
+                speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+                systemInstruction: `
+                CONTEXTE : Transcription Speech-to-Text CULINAIRE.
+                TA TÂCHE : Écoute le flux audio et transcris EXACTEMENT ce qui est dit.
+                DICTIONNAIRE : /pat/="Pâtes", /stik/="Steak", /patat/="Patates", /lɛ/="Lait", /sɛl/="Sel".
+                `,
+                inputAudioTranscription: {}, 
             }
-            const rms = Math.sqrt(sum / (inputData.length / 4));
-            onVolumeChange(rms);
-        }
-
-        const downsampledInt16 = downsampleTo16k(inputData, audioContext.sampleRate);
-        const base64Data = encode(new Uint8Array(downsampledInt16.buffer));
-
-        sessionPromise.then((session) => {
-            session.sendRealtimeInput({ media: { mimeType: `audio/pcm;rate=${TARGET_SAMPLE_RATE}`, data: base64Data } });
         });
-    };
 
-    return () => {
-        // Cleanup
-        window.__liveScriptProcessor = null;
-        scriptProcessor.disconnect();
-        gainNode.disconnect();
-        source.disconnect();
-        stream.getTracks().forEach(t => t.stop());
-        audioContext.close();
-        sessionPromise.then(session => session.close());
-    };
+        scriptProcessor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            
+            if (onVolumeChange) {
+                let sum = 0;
+                for (let i = 0; i < inputData.length; i += 4) {
+                    sum += inputData[i] * inputData[i];
+                }
+                onVolumeChange(Math.sqrt(sum / (inputData.length / 4)));
+            }
+
+            const downsampledInt16 = downsampleTo16k(inputData, audioContext.sampleRate);
+            const base64Data = encode(new Uint8Array(downsampledInt16.buffer));
+
+            sessionPromise.then((session) => {
+                session.sendRealtimeInput({ media: { mimeType: `audio/pcm;rate=${TARGET_SAMPLE_RATE}`, data: base64Data } });
+            }).catch(err => {
+                // Silent fail on connection issues to prevent loop crash, callback handles global error
+            });
+        };
+
+        return () => {
+            window.__liveScriptProcessor = null;
+            scriptProcessor.disconnect();
+            gainNode.disconnect();
+            source.disconnect();
+            stream.getTracks().forEach(t => t.stop());
+            audioContext.close();
+            sessionPromise.then(session => session.close());
+        };
+    } catch (e) {
+        onError(e);
+        return () => {
+             stream.getTracks().forEach(t => t.stop());
+             audioContext.close();
+        };
+    }
 };

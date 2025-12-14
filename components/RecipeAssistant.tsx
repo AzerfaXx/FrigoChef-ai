@@ -8,7 +8,7 @@ import {
   pcmToAudioBuffer,
   startLiveTranscription,
 } from '../services/geminiService';
-import { Mic, Send, Bot, Sparkles, Volume2, VolumeX, Globe, Loader2, StopCircle, ChefHat, X, ArrowRight } from 'lucide-react';
+import { Mic, Send, Bot, Sparkles, Volume2, VolumeX, Globe, Loader2, StopCircle, ChefHat, X, ArrowRight, AlertTriangle } from 'lucide-react';
 
 interface Props {
   ingredients: Ingredient[];
@@ -50,10 +50,13 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isAutoPlay, setIsAutoPlay] = useState(true);
 
+  // Error State
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   // Dictation State (Live API)
   const [isRecording, setIsRecording] = useState(false);
   const [isConnectingLive, setIsConnectingLive] = useState(false);
-  const [micVolume, setMicVolume] = useState(0); // For Visual Feedback
+  const [micVolume, setMicVolume] = useState(0); 
   const stopLiveSessionRef = useRef<(() => void) | null>(null);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,11 +100,10 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
     ];
   };
 
-  const currentSuggestions = getDynamicSuggestions().slice(0, 2); // Max 2 items
+  const currentSuggestions = getDynamicSuggestions().slice(0, 2); 
   const showSuggestions = inputValue.length === 0 && !isLoading;
 
   const scrollToBottom = () => {
-    // Only scroll if this tab is active to prevent glitches on other tabs
     if (isActive) {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
@@ -109,7 +111,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoading, isPlayingAudio]);
+  }, [messages, isLoading, isPlayingAudio, errorMsg]);
 
   useEffect(() => {
       isAutoPlayRef.current = isAutoPlay;
@@ -131,17 +133,14 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   
   const startRecording = async () => {
     try {
+        setErrorMsg(null);
         setIsConnectingLive(true);
         const cleanup = await startLiveTranscription(
             (text) => {
                 setInputValue(prev => {
-                    // Smart spacing logic: Add space if prev text exists, doesn't end in space, 
-                    // and new text doesn't start with space or punctuation.
                     const needsSpace = prev.length > 0 && !prev.endsWith(' ') && !text.startsWith(' ') && !/^[.,?!;:]/.test(text);
                     return prev + (needsSpace ? ' ' : '') + text;
                 });
-                
-                // Auto-scroll input
                 if (textareaRef.current) {
                     textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
                 }
@@ -151,11 +150,13 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                 setIsRecording(false);
                 setIsConnectingLive(false);
                 setMicVolume(0);
-                alert("Erreur de connexion audio. Réessayez.");
+                if (err === "API_KEY_MISSING") {
+                    setErrorMsg("Clé API manquante. Veuillez la configurer dans le profil.");
+                } else {
+                    setErrorMsg("Erreur connexion vocale. Vérifiez votre clé API.");
+                }
             },
             (volume) => {
-                // Update volume state for visual feedback
-                // Normalize slightly for visual effect (0 to 1)
                 setMicVolume(Math.min(volume * 5, 1));
             }
         );
@@ -188,7 +189,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       }
   };
 
-  // Ensure cleanup on unmount
   useEffect(() => {
       return () => {
           if (stopLiveSessionRef.current) {
@@ -203,9 +203,9 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       const newItems = (args.items || []).map((item: any) => ({
         id: Date.now().toString() + Math.random(),
         name: item.name,
-        quantity: item.quantity || '1', // Default quantity if missing
-        category: item.category || 'other', // AI should infer this
-        expiryDate: item.expiryDate || null // AI handles date calculation
+        quantity: item.quantity || '1', 
+        category: item.category || 'other', 
+        expiryDate: item.expiryDate || null 
       }));
       setIngredients(prev => [...prev, ...newItems]);
       return newItems; 
@@ -214,7 +214,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
     if (name === 'retirerDuStock') {
         const itemsToRemove = (args.items || []) as string[];
         const normalizedToRemove = itemsToRemove.map(i => i.toLowerCase());
-        
         setIngredients(prev => prev.filter(item => !normalizedToRemove.includes(item.name.toLowerCase())));
         return { removed: itemsToRemove };
     }
@@ -222,7 +221,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
     if (name === 'modifierStock') {
         const originalName = args.originalName?.toLowerCase();
         let modifiedItem = null;
-
         setIngredients(prev => prev.map(item => {
             if (item.name.toLowerCase() === originalName) {
                 const updated = {
@@ -236,7 +234,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
             }
             return item;
         }));
-        
         return modifiedItem ? { modified: modifiedItem } : null;
     }
 
@@ -344,6 +341,8 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   const handleSend = async (manualText?: string) => {
     const textToSend = manualText || inputValue;
     if (!textToSend.trim()) return;
+    
+    setErrorMsg(null);
 
     // CRITICAL: Initialize/Resume Audio Context on user gesture to avoid mobile delays
     if (isAutoPlayRef.current) {
@@ -497,9 +496,14 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
              }
          }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Oups, une erreur est survenue." }]);
+      let msg = "Une erreur est survenue. Vérifiez votre connexion.";
+      if (error.message?.includes("API_KEY_MISSING") || error.message?.includes("403") || error.message?.includes("PERMISSION_DENIED")) {
+          msg = "⚠️ Clé API invalide ou bloquée. Allez dans le PROFIL pour en ajouter une nouvelle.";
+      }
+      setErrorMsg(msg);
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: msg }]);
     } finally {
       setTimeout(() => setIsLoading(false), 200);
     }
@@ -533,6 +537,15 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth">
+        
+        {/* Error Banner */}
+        {errorMsg && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl flex gap-3 animate-in slide-in-from-top-4 fade-in">
+                <AlertTriangle size={20} className="text-red-500 shrink-0" />
+                <p className="text-sm text-red-700 dark:text-red-300 font-medium">{errorMsg}</p>
+            </div>
+        )}
+
         {messages.map((msg) => (
           <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-4 duration-500`}>
             
@@ -593,7 +606,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       {/* Input Area */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md z-30 shrink-0 pb-safe relative transition-all border-t border-slate-100 dark:border-slate-800/50">
          
-         {/* Dynamic Suggestions (Chips) - Max 2 items - No Emojis */}
+         {/* Dynamic Suggestions */}
          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showSuggestions ? 'max-h-24 opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
             <div className="flex items-stretch gap-2 px-2 py-2">
                 {currentSuggestions.map((suggestion, idx) => (
@@ -629,7 +642,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                 <button
                     type="button"
                     onClick={toggleRecording}
-                    // Visual Feedback: Pulsing scale based on volume
+                    // Visual Feedback
                     style={{ 
                         transform: isRecording ? `scale(${1 + micVolume * 0.4})` : 'scale(1)',
                         boxShadow: isRecording ? `0 0 ${10 + micVolume * 20}px rgba(244, 63, 94, 0.5)` : undefined
@@ -648,9 +661,10 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                 <div className={`flex-1 min-w-0 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-colors duration-200 ${
                     isRecording 
                     ? 'border-rose-500' 
+                    : errorMsg 
+                    ? 'border-red-300' 
                     : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500/20'
                 }`}>
-                    {/* Recording Indicator inside Input Area */}
                     {isRecording && (
                         <div className="pl-3.5 flex items-center justify-center shrink-0">
                              <div className="relative flex h-2.5 w-2.5">
@@ -663,16 +677,16 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                     <textarea
                         ref={textareaRef}
                         value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
+                        onChange={(e) => { setErrorMsg(null); setInputValue(e.target.value); }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
                                 handleSend();
                             }
                         }}
-                        placeholder={isRecording ? "Je vous écoute..." : (isConnectingLive ? "Connexion..." : "Demandez une recette...")}
+                        placeholder={isRecording ? "Je vous écoute..." : (isConnectingLive ? "Connexion..." : errorMsg ? "Clé API invalide !" : "Demandez une recette...")}
                         disabled={isConnectingLive}
-                        readOnly={isRecording} // Prevent keyboard flicker on mobile
+                        readOnly={isRecording} 
                         rows={1}
                         className={`flex-1 p-3.5 max-h-32 min-h-[52px] bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium resize-none transition-all ${isConnectingLive ? 'opacity-50' : ''}`}
                     />
