@@ -3,21 +3,19 @@ import { Ingredient, ShoppingItem } from "../types";
 
 // Initialize the client
 const getAiClient = () => {
-  // 1. Check Environment (Deployment)
-  let apiKey = process.env.API_KEY;
-  
-  // 2. Check Local Storage (User Settings)
-  if (!apiKey || apiKey.startsWith("AIzaSy...LEAKED")) {
-      const storedKey = localStorage.getItem('fc_api_key');
-      if (storedKey) apiKey = storedKey;
-  }
+  // 1. Check Local Storage (User Settings) - Priority to allow user correction
+  const storedKey = localStorage.getItem('fc_api_key');
+  if (storedKey) return new GoogleGenAI({ apiKey: storedKey });
 
-  // 3. Fallback / Error
-  if (!apiKey) {
-      throw new Error("API_KEY_MISSING");
+  // 2. Check Environment (Deployment)
+  // Filter out potential placeholder values if leaked
+  if (process.env.API_KEY && !process.env.API_KEY.includes("LEAKED")) {
+      return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
   
-  return new GoogleGenAI({ apiKey });
+  // 3. Fallback to User Provided Key
+  // This allows the app to work out-of-the-box, but allows override via Profile if blocked.
+  return new GoogleGenAI({ apiKey: "AIzaSyDpF6Q7i2BQbC1CovL01il0cZNf6ooaWiA" });
 };
 
 // --- Tool Definitions ---
@@ -401,12 +399,29 @@ export const startLiveTranscription = async (
             },
             config: {
                 responseModalities: [Modality.AUDIO], 
-                generationConfig: { temperature: 0 },
+                generationConfig: { 
+                    temperature: 0 
+                },
                 speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+                // OPTIMIZED SYSTEM PROMPT FOR COOKING INGREDIENTS
                 systemInstruction: `
-                CONTEXTE : Transcription Speech-to-Text CULINAIRE.
-                TA TÂCHE : Écoute le flux audio et transcris EXACTEMENT ce qui est dit.
-                DICTIONNAIRE : /pat/="Pâtes", /stik/="Steak", /patat/="Patates", /lɛ/="Lait", /sɛl/="Sel".
+                CONTEXTE: Assistant de cuisine (Speech-to-Text).
+                TACHE: Transcrire EXCLUSIVEMENT la parole de l'utilisateur avec une précision phonétique sur les aliments.
+                
+                DICTIONNAIRE DE CORRECTION (IMPÉRATIF):
+                - /pat/ -> "Pâtes" (JAMAIS "pattes" ou "patte")
+                - /stik/ -> "Steak" (JAMAIS "stick")
+                - /patat/ -> "Patates"
+                - /lɛ/ -> "Lait" (JAMAIS "les" ou "lé")
+                - /sɛl/ -> "Sel" (JAMAIS "celle")
+                - /riz/ -> "Riz" (JAMAIS "ri")
+                - /o/ -> "Eau"
+                - /courgette/ -> "Courgettes"
+                
+                RÈGLES:
+                1. Ignore les hésitations (euh, bah, hum).
+                2. Formate les listes avec des virgules.
+                3. Transcris les nombres en chiffres (3 oeufs, pas trois oeufs).
                 `,
                 inputAudioTranscription: {}, 
             }
@@ -429,7 +444,7 @@ export const startLiveTranscription = async (
             sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: { mimeType: `audio/pcm;rate=${TARGET_SAMPLE_RATE}`, data: base64Data } });
             }).catch(err => {
-                // Silent fail on connection issues to prevent loop crash, callback handles global error
+                // Silent catch
             });
         };
 
