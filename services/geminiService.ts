@@ -13,7 +13,7 @@ const getAiClient = () => {
 
 const addToInventoryTool: FunctionDeclaration = {
   name: 'ajouterAuStock',
-  description: 'Ajouter des ingrédients au STOCK (Frigo/Placard). A utiliser UNIQUEMENT quand l\'utilisateur dit "J\'ai acheté", "J\'ai pris", "Ajoute au stock", "Mets dans le frigo" (action PASSÉE/RÉALISÉE).',
+  description: 'Ajouter des ingrédients au STOCK (Frigo/Placard). Action immédiate sans poser de questions.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -24,7 +24,7 @@ const addToInventoryTool: FunctionDeclaration = {
           type: Type.OBJECT,
           properties: {
             name: { type: Type.STRING, description: 'Nom propre de l\'ingrédient (ex: Steak, Lait, Pommes)' },
-            quantity: { type: Type.STRING, description: 'Quantité (ex: 500g, 2 paquets). Si non précisée, mettre "1".' },
+            quantity: { type: Type.STRING, description: 'Quantité. Si non précisée par l\'utilisateur, mettre "1".' },
             category: { 
               type: Type.STRING, 
               description: 'Catégorie DÉDUITE automatiquement.', 
@@ -32,7 +32,7 @@ const addToInventoryTool: FunctionDeclaration = {
             },
             expiryDate: {
               type: Type.STRING,
-              description: 'Date de péremption CALCULÉE au format ISO YYYY-MM-DD. (Ex: "dans 10 jours" -> Aujourd\'hui + 10 jours).'
+              description: 'Date de péremption UNIQUEMENT si explicitement donnée par l\'utilisateur (format ISO YYYY-MM-DD). Sinon NULL.'
             }
           },
           required: ['name', 'category']
@@ -80,7 +80,7 @@ const updateInventoryTool: FunctionDeclaration = {
 
 const addToShoppingListTool: FunctionDeclaration = {
   name: 'ajouterAuPanier',
-  description: 'Ajouter des articles à la LISTE DE COURSES. A utiliser quand l\'utilisateur dit "Ajoute du lait", "Il me faut", "On n\'a plus de", "Besoin de", "Ajoute à la liste" (besoin FUTUR).',
+  description: 'Ajouter des articles à la LISTE DE COURSES. Action immédiate.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -96,17 +96,17 @@ const addToShoppingListTool: FunctionDeclaration = {
 
 const saveRecipeTool: FunctionDeclaration = {
   name: 'sauvegarderRecette',
-  description: 'Sauvegarder une recette.',
+  description: 'Sauvegarder une recette. IMPORTANT: Tu DOIS générer une "description" courte et appétissante (1 phrase) et estimer le "prepTime" (ex: 15 min) si non fournis.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       title: { type: Type.STRING },
-      description: { type: Type.STRING },
+      description: { type: Type.STRING, description: 'Résumé court et appétissant du plat.' },
       ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
       steps: { type: Type.ARRAY, items: { type: Type.STRING } },
-      prepTime: { type: Type.STRING }
+      prepTime: { type: Type.STRING, description: 'Durée estimée (ex: 20 min)' }
     },
-    required: ['title', 'ingredients', 'steps']
+    required: ['title', 'ingredients', 'steps', 'description', 'prepTime']
   }
 };
 
@@ -195,7 +195,7 @@ export const generateRecipePlan = async (
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash", 
+    model: "gemini-2.0-flash", // Utilisation de 2.0-flash (stable)
     contents: prompt,
   });
 
@@ -210,7 +210,7 @@ export const chatWithChefStream = async function* (
   useSearch: boolean = false
 ) {
   const ai = getAiClient();
-  const model = "gemini-2.5-flash";
+  const model = "gemini-2.0-flash"; // Utilisation de 2.0-flash (stable)
   const activeTools = useSearch ? [...toolsConfig, { googleSearch: {} }] : toolsConfig;
   
   const inventoryContext = ingredients.length > 0
@@ -230,29 +230,36 @@ export const chatWithChefStream = async function* (
     
     RÈGLES D'INTENTION STRICTES (NE PAS CONFONDRE LISTE ET STOCK):
     
-    1. LISTE DE COURSES (FUTUR/BESOIN): 
-       - Déclencheurs : "Ajoute du lait", "Il me faut...", "On n'a plus de...", "Besoin de...", "Ajoute à la liste".
+    1. EXÉCUTION DIRECTE (ZERO QUESTIONS) :
+       - NE DEMANDE JAMAIS la date de péremption si l'utilisateur ne l'a pas donnée. (Laisse null).
+       - NE DEMANDE JAMAIS la quantité si elle n'est pas précisée. (Mets "1").
+       - Exécute l'action IMMEDIATEMENT.
+    
+    2. LISTE DE COURSES (FUTUR/BESOIN/MANQUE): 
+       - Déclencheurs : "Ajoute du lait", "Il me faut...", "On n'a plus de...", "Besoin de...", "Ajoute à la liste", "Achète...".
        - ACTION : UTILISE 'ajouterAuPanier'.
-       - NOTE : Si l'utilisateur dit juste "Ajoute des pommes" sans préciser "stock", c'est pour la LISTE par défaut.
+       - NOTE : "Ajoute des pommes" (sans contexte de stock) -> LISTE par défaut.
 
-    2. GESTION STOCK (PASSÉ/ACTION FAITE): 
-       - Déclencheurs : "J'ai acheté...", "J'ai pris...", "Mets dans le frigo", "Ajoute au stock", "Je reviens des courses".
+    3. GESTION STOCK (PASSÉ/ACTION FAITE): 
+       - Déclencheurs : "J'ai acheté...", "J'ai pris...", "Mets dans le frigo", "Ajoute au stock", "Je reviens des courses", "J'ai [ingrédient]".
        - ACTION : UTILISE 'ajouterAuStock'.
-       - Déclencheurs Retrait : "J'ai fini...", "Il n'y a plus de [item] dans le frigo", "J'ai jeté".
+       - IMPORTANT : Ne cherche pas à savoir la date. Ajoute direct.
+       - Déclencheurs Retrait : "J'ai fini...", "Il n'y a plus de [item] DANS LE FRIGO", "J'ai jeté".
        - ACTION : UTILISE 'retirerDuStock'.
 
-    3. RECETTE & SAUVEGARDE:
-       - Si demande de recette : ANALYSE LE STOCK ACTUEL. Propose des recettes réalisables (en priorité) avec le stock. 
-       - INGRÉDIENTS MANQUANTS : Vérifie d'abord s'ils sont déjà dans la LISTE DE COURSES ci-dessous avant de suggérer de les ajouter. S'ils n'y sont pas, propose de les ajouter.
-       - Si demande de sauvegarde ("Sauvegarde cette recette") : TU DOIS RÉCUPÉRER le titre, ingrédients et étapes de la DERNIÈRE recette générée dans la conversation précédente et appeler 'sauvegarderRecette' avec ces données.
+    4. GÉNÉRATION & SAUVEGARDE AUTOMATIQUE DE RECETTE :
+       - QUAND TU GÉNÈRES UNE RECETTE :
+         1. Affiche la recette en texte.
+         2. APPELLE IMMÉDIATEMENT 'sauvegarderRecette'.
+         3. IMPORTANT: Remplis le champ 'description' avec une phrase alléchante et 'prepTime' avec une estimation.
 
-    CONTEXTE STOCK ACTUEL (Pour créer des recettes) : 
+    CONTEXTE STOCK ACTUEL : 
     ${inventoryContext}
 
-    CONTEXTE LISTE COURSES ACTUELLE (Pour éviter doublons ou suggérer recettes futures) : 
+    CONTEXTE LISTE COURSES : 
     ${shoppingContext}
     
-    Calcule toujours les dates précises (ISO ${isoDate}).
+    ISO Date: ${isoDate}.
   `;
 
   const chat = ai.chats.create({
@@ -286,7 +293,7 @@ export const generateSpeech = async (text: string): Promise<string | null> => {
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: "gemini-2.0-flash-exp", // Utilisation de 2.0-flash-exp pour l'audio output
       contents: [{ parts: [{ text: cleanText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -393,7 +400,7 @@ export const startLiveTranscription = async (
 
     try {
         const sessionPromise = ai.live.connect({
-            model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+            model: 'gemini-2.0-flash-exp', // Utilisation de 2.0-flash-exp pour le Live API
             callbacks: {
                 onopen: () => console.log("Live Connected"),
                 onmessage: (message: LiveServerMessage) => {

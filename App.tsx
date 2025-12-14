@@ -7,6 +7,32 @@ import Profile from './components/Profile';
 import Carnet from './components/Carnet';
 import { LayoutGrid, ShoppingCart, ChefHat, User, BookOpen } from 'lucide-react';
 
+// --- Helper: Auto-Categorization Logic ---
+const detectCategory = (name: string): Ingredient['category'] => {
+  const lower = name.toLowerCase();
+
+  // 1. Viandes & Poissons
+  if (lower.match(/poulet|dinde|volaille|boeuf|steak|viande|haché|porc|jambon|lardon|saucisse|poisson|saumon|thon|cabillaud|crevette|gambas|oeuf/)) return 'meat';
+
+  // 2. Fruits & Légumes (Produce)
+  if (lower.match(/pomme|banane|poire|orange|clémentine|citron|raisin|fraise|framboise|fruit|carotte|salade|laitue|tomate|oignon|ail|échalote|patate|courgette|aubergine|poivron|avocat|brocoli|champignon|légume|basilic|persil|menthe|coriandre|épinard|haricot/)) return 'produce';
+
+  // 3. Boissons
+  if (lower.match(/eau|lait|jus|soda|coca|bière|vin|café|thé|boisson|sirop|alcool/)) return 'drinks';
+
+  // 4. Sauces & Condiments
+  if (lower.match(/sauce|ketchup|mayo|moutarde|huile|vinaigre|épice|sel|poivre|bouillon|cube/)) return 'sauce';
+
+  // 5. Surgelés
+  if (lower.match(/surgelé|glace|pizza|frite|poêlée/)) return 'frozen';
+
+  // 6. Épicerie (Pantry)
+  if (lower.match(/pâte|spaghetti|macaroni|nouille|riz|semoule|blé|quinoa|lentille|pain|baguette|toast|farine|sucre|levure|biscuit|gâteau|céréale|conserve|boite|chocolat|miel|confiture|tartine|nutella/)) return 'pantry';
+
+  // Par défaut 'other' (inclut souvent les produits laitiers spécifiques comme fromage/yaourt si pas géré ailleurs, ou produits ménagers)
+  return 'other';
+};
+
 const App: React.FC = () => {
   // --- App Data State with Persistence ---
 
@@ -59,7 +85,7 @@ const App: React.FC = () => {
     } catch (e) { return false; }
   });
 
-  // CHANGE: Default tab is ASSISTANT (Chef) per user request
+  // CHANGE: Default tab is ASSISTANT (Chef)
   const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.ASSISTANT);
 
   // --- Persistence Effects (Save on Change) ---
@@ -126,20 +152,20 @@ const App: React.FC = () => {
     handleStreak();
   }, []);
 
-  // --- NOTIFICATIONS LOGIC (Expiry Check) ---
+  // --- NOTIFICATIONS LOGIC (DAILY CHECK) ---
   useEffect(() => {
-    const checkExpiryAndNotify = async () => {
-      // Only proceed if user enabled notifications and browser supports it
+    const checkAndNotify = async () => {
+      // 1. Vérifier si les notifs sont activées
       if (!notificationsEnabled || !('Notification' in window)) return;
       if (Notification.permission !== 'granted') return;
 
-      // Avoid spamming: Check if we already notified TODAY
+      // 2. Vérifier si on a déjà envoyé une notif AUJOURD'HUI
       const todayStr = new Date().toISOString().split('T')[0];
       const lastNotifDate = localStorage.getItem('fc_last_notif_date');
 
-      if (lastNotifDate === todayStr) return;
+      if (lastNotifDate === todayStr) return; // Déjà notifié aujourd'hui
 
-      // Check for expiring items (<= 3 days)
+      // 3. PRIORITÉ : Vérifier les péremptions (Anti-Gaspi)
       const today = new Date();
       const expiringItems = ingredients.filter(item => {
         if (!item.expiryDate) return false;
@@ -150,26 +176,36 @@ const App: React.FC = () => {
       });
 
       if (expiringItems.length > 0) {
+        // NOTIFICATION PÉREMPTION
         try {
-          // Send Notification
-          new Notification('FrigoChef : Anti-Gaspillage 🍎', {
-            body: `Attention chef ! Vous avez ${expiringItems.length} aliment(s) qui périment bientôt. Une petite recette ?`,
-            icon: '/icon.png',
+          new Notification('Attention au gaspillage ! 🍎', {
+            body: `Chef, vous avez ${expiringItems.length} aliment(s) qui périment bientôt. Cuisinons-les !`,
+            icon: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png',
             tag: 'expiry-alert'
           });
-          
           localStorage.setItem('fc_last_notif_date', todayStr);
         } catch (e) {
-          console.error("Notification failed", e);
+          console.error("Notif failed", e);
         }
-      } else if (streak > 0) {
-         // Optionnel: Notification de streak si rien ne périme
-         // new Notification('FrigoChef 🔥', { body: `Bravo ! ${streak} jours de suite. Continuez comme ça !`, icon: '/icon.png' });
-         // localStorage.setItem('fc_last_notif_date', todayStr);
+      } else {
+         // 4. SINON : Notification de STREAK (Rappel Quotidien)
+         // S'il n'y a rien qui périme, on rappelle à l'utilisateur de venir pour sa streak
+         try {
+             new Notification('Ne brisez pas votre Streak ! 🔥', {
+                 body: `Revenez sur FrigoChef pour maintenir votre flamme de ${streak} jours !`,
+                 icon: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png',
+                 tag: 'streak-reminder'
+             });
+             localStorage.setItem('fc_last_notif_date', todayStr);
+         } catch (e) {
+             console.error("Notif failed", e);
+         }
       }
     };
 
-    checkExpiryAndNotify();
+    // On lance la vérification au chargement
+    checkAndNotify();
+
   }, [ingredients, notificationsEnabled, streak]);
 
 
@@ -231,14 +267,14 @@ const App: React.FC = () => {
     }
   };
 
-  // --- LOGIC: Move Checked Shopping Items to Stock ---
+  // --- LOGIC: Move Checked Shopping Items to Stock with Auto-Categorization ---
   const moveCheckedToStock = (itemsToMove: ShoppingItem[]) => {
       const newIngredients: Ingredient[] = itemsToMove.map(item => ({
           id: Date.now().toString() + Math.random(),
           name: item.name,
           quantity: '1', // Quantité par défaut
           expiryDate: null,
-          category: 'other' // Catégorie par défaut (l'utilisateur pourra modifier)
+          category: detectCategory(item.name) // <--- SMART CATEGORIZATION HERE
       }));
       
       setIngredients(prev => [...prev, ...newIngredients]);

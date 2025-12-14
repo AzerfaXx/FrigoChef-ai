@@ -110,10 +110,18 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
             setNotificationsEnabled(true);
-            new Notification('Notifications activées ! 🔔', {
-                body: 'Vous serez alerté si vos produits arrivent à péremption.',
-                icon: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png'
-            });
+            
+            // NOTIFICATION IMMÉDIATE DE CONFIRMATION
+            try {
+                new Notification('Notifications activées ! 🎉', {
+                    body: 'Merci ! Vous recevrez nos alertes anti-gaspi et vos rappels de streak quotidiens.',
+                    icon: 'https://cdn-icons-png.flaticon.com/512/3075/3075977.png',
+                    tag: 'welcome-notif'
+                });
+            } catch (e) {
+                console.error("Erreur notification test", e);
+            }
+
         } else {
             alert("Veuillez autoriser les notifications dans les paramètres de votre appareil.");
             setNotificationsEnabled(false);
@@ -309,7 +317,7 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
          
          <div className="text-center pt-4">
              <p className="text-[10px] text-slate-300 dark:text-slate-600">
-                 FrigoChef AI v1.5.0 (Auto-Connect)
+                 FrigoChef AI v1.6.0 (Notifs Boosted)
              </p>
          </div>
       </div>

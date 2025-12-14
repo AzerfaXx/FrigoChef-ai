@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Recipe } from '../types';
-import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2, Trash2 } from 'lucide-react';
+import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2, Trash2, AlignLeft } from 'lucide-react';
 import { playTextAsAudio, stopAudio } from '../services/geminiService';
 
 interface Props {
@@ -9,49 +9,65 @@ interface Props {
   setSavedRecipes: React.Dispatch<React.SetStateAction<Recipe[]>>;
 }
 
-// Helper simple pour mapper des mots-clés d'ingrédients à des emojis
+// Helper ENRICHI pour mapper des mots-clés d'ingrédients à des emojis
 const getIngredientEmoji = (name: string): string => {
   const lower = name.toLowerCase();
   
   // Viandes & Poissons
-  if (lower.includes('poulet') || lower.includes('dinde') || lower.includes('volaille')) return '🍗';
-  if (lower.includes('boeuf') || lower.includes('steak') || lower.includes('viande')) return '🥩';
-  if (lower.includes('porc') || lower.includes('jambon') || lower.includes('lardon')) return '🥓';
-  if (lower.includes('poisson') || lower.includes('saumon') || lower.includes('thon')) return '🐟';
-  if (lower.includes('crevette') || lower.includes('gambas')) return '🍤';
-  if (lower.includes('oeuf')) return '🥚';
+  if (lower.match(/poulet|dinde|volaille|canard/)) return '🍗';
+  if (lower.match(/boeuf|steak|viande|entrecôte|bavette/)) return '🥩';
+  if (lower.match(/porc|jambon|lardon|bacon|saucisse|chorizo/)) return '🥓';
+  if (lower.match(/poisson|saumon|thon|colin|cabillaud/)) return '🐟';
+  if (lower.match(/crevette|gambas|homard|crabe|fruit de mer/)) return '🍤';
+  if (lower.match(/oeuf|omelette/)) return '🥚';
+  if (lower.match(/burger/)) return '🍔';
 
-  // Féculents
-  if (lower.includes('nouille') || lower.includes('spaghetti') || lower.includes('pâte')) return '🍜';
-  if (lower.includes('riz')) return '🍚';
-  if (lower.includes('pain') || lower.includes('toast') || lower.includes('baguette')) return '🥖';
-  if (lower.includes('pomme de terre') || lower.includes('patate') || lower.includes('frite')) return '🥔';
+  // Féculents & Boulangerie
+  if (lower.match(/nouille|spaghetti|pâte|macaroni|penne|fusilli|lasagne/)) return '🍝';
+  if (lower.match(/riz|risotto|sushi/)) return '🍚';
+  if (lower.match(/pain|toast|baguette|tartine|bun/)) return '🥖';
+  if (lower.match(/pomme de terre|patate|frite|purée|gnocchi/)) return '🥔';
+  if (lower.match(/pizza/)) return '🍕';
+  if (lower.match(/croissant|viennoiserie/)) return '🥐';
 
   // Légumes & Fruits
-  if (lower.includes('tomate')) return '🍅';
-  if (lower.includes('salade') || lower.includes('laitue')) return '🥬';
-  if (lower.includes('carotte')) return '🥕';
-  if (lower.includes('oignon') || lower.includes('ail') || lower.includes('échalote')) return '🧅';
-  if (lower.includes('brocoli')) return '🥦';
-  if (lower.includes('champignon')) return '🍄';
-  if (lower.includes('aubergine')) return '🍆';
-  if (lower.includes('maïs')) return '🌽';
-  if (lower.includes('avocat')) return '🥑';
-  if (lower.includes('piment') || lower.includes('poivron')) return '🌶️';
-  if (lower.includes('citron')) return '🍋';
-  if (lower.includes('fruit') || lower.includes('pomme') || lower.includes('fraise')) return '🍎';
+  if (lower.match(/tomate/)) return '🍅';
+  if (lower.match(/salade|laitue|roquette|mâche/)) return '🥬';
+  if (lower.match(/carotte/)) return '🥕';
+  if (lower.match(/oignon|ail|échalote/)) return '🧅';
+  if (lower.match(/brocoli|chou/)) return '🥦';
+  if (lower.match(/champignon|cèpe|girolle/)) return '🍄';
+  if (lower.match(/aubergine/)) return '🍆';
+  if (lower.match(/maïs/)) return '🌽';
+  if (lower.match(/avocat/)) return '🥑';
+  if (lower.match(/piment|poivron|épicé/)) return '🌶️';
+  if (lower.match(/citron|lime|agrume/)) return '🍋';
+  if (lower.match(/pomme/)) return '🍎';
+  if (lower.match(/poire/)) return '🍐';
+  if (lower.match(/fraise|framboise/)) return '🍓';
+  if (lower.match(/cerise/)) return '🍒';
+  if (lower.match(/pêche|abricot/)) return '🍑';
+  if (lower.match(/raisin/)) return '🍇';
+  if (lower.match(/melon|pastèque/)) return '🍉';
+  if (lower.match(/banane/)) return '🍌';
+  if (lower.match(/ananas/)) return '🍍';
+  if (lower.match(/concombre/)) return '🥒';
 
   // Laitages & Autres
-  if (lower.includes('fromage') || lower.includes('parmesan') || lower.includes('mozzarella')) return '🧀';
-  if (lower.includes('lait') || lower.includes('crème') || lower.includes('beurre')) return '🥛';
-  if (lower.includes('chocolat') || lower.includes('cacao')) return '🍫';
-  if (lower.includes('miel')) return '🍯';
-  if (lower.includes('sel') || lower.includes('poivre') || lower.includes('épice') || lower.includes('herbe')) return '🧂';
-  if (lower.includes('huile') || lower.includes('vinaigre') || lower.includes('sauce')) return '🫒';
-  if (lower.includes('vin') || lower.includes('bière')) return '🍷';
-  if (lower.includes('eau')) return '💧';
+  if (lower.match(/fromage|parmesan|mozzarella|comté|gruyère|raclette/)) return '🧀';
+  if (lower.match(/lait|crème|beurre|yaourt/)) return '🥛';
+  if (lower.match(/chocolat|cacao|dessert|gâteau|cookie/)) return '🍫';
+  if (lower.match(/glace|sorbet/)) return '🍨';
+  if (lower.match(/miel/)) return '🍯';
+  if (lower.match(/sel|poivre|épice|herbe|curry|paprika|cumin/)) return '🧂';
+  if (lower.match(/huile|vinaigre|sauce|soja/)) return '🫒';
+  if (lower.match(/vin|alcool/)) return '🍷';
+  if (lower.match(/bière/)) return '🍺';
+  if (lower.match(/eau/)) return '💧';
+  if (lower.match(/café/)) return '☕';
+  if (lower.match(/thé/)) return '🫖';
 
-  return '🥘'; // Défaut
+  return '🥘'; // Défaut (Plat cuisiné)
 };
 
 const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
@@ -65,14 +81,17 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
     r.ingredients.some(i => i.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  // LOGIQUE DE TRI STRICTE : Épinglé > Favori > Date
   const sortedRecipes = [...filteredRecipes].sort((a, b) => {
-    // Pinned items first
+    // 1. Épinglés en premier
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;
-    // Then favorites
+    
+    // 2. Favoris (Cœur) en deuxième
     if (a.isFavorite && !b.isFavorite) return -1;
     if (!a.isFavorite && b.isFavorite) return 1;
-    // Finally by date
+    
+    // 3. Plus récent en dernier (par date de création)
     return b.createdAt - a.createdAt;
   });
 
@@ -107,13 +126,18 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
       setSavedRecipes(prev => prev.map(r => r.id === id ? { ...r, isPinned: !r.isPinned } : r));
   };
 
+  // FONCTION DE SUPPRESSION VERROUILLÉE
   const deleteRecipe = (e: React.MouseEvent, id: string) => {
-      e.stopPropagation();
-      if (window.confirm("Voulez-vous vraiment supprimer cette recette du carnet ?")) {
-          setSavedRecipes(prev => prev.filter(r => r.id !== id));
+      e.stopPropagation(); // Bloque le clic sur la carte
+      e.preventDefault(); // Bloque tout comportement par défaut
+      
+      if (window.confirm("🗑️ Voulez-vous vraiment supprimer cette recette de votre carnet ?")) {
+          // Si on supprime la recette qu'on est en train de lire, on ferme d'abord la modale
           if (selectedRecipe?.id === id) {
               closeModal();
           }
+          // On filtre la liste pour retirer l'ID concerné
+          setSavedRecipes(prev => prev.filter(r => r.id !== id));
       }
   };
 
@@ -136,56 +160,69 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 relative">
-      {/* Detail Modal */}
+      
+      {/* --- DETAIL MODAL (RECETTE OUVERTE) --- */}
       {selectedRecipe && createPortal(
           <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-900 flex flex-col animate-in slide-in-from-bottom-full duration-300">
-             <div className="pt-10 pb-4 px-6 border-b border-slate-100 dark:border-slate-800 flex items-start gap-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-20">
+             
+             {/* Modal Header */}
+             <div className="pt-10 pb-4 px-6 border-b border-slate-100 dark:border-slate-800 flex items-start gap-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md sticky top-0 z-20">
                  <button 
                     onClick={closeModal}
                     className="p-2 -ml-2 mt-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors shrink-0"
                  >
                      <ChevronRight className="rotate-180" />
                  </button>
-                 {/* Titre complet visible ici (pas de truncate) */}
+                 
                  <h2 className="text-xl font-bold flex-1 text-slate-900 dark:text-white leading-tight pt-1.5">{selectedRecipe.title}</h2>
                  
-                 <div className="flex gap-1 shrink-0 mt-1">
-                    <button 
-                        onClick={(e) => deleteRecipe(e, selectedRecipe.id)}
-                        className="p-2 rounded-full transition-colors text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                    >
-                        <Trash2 size={20} />
-                    </button>
-                    <button 
-                        onClick={(e) => togglePin(e, selectedRecipe.id)}
-                        className={`p-2 rounded-full transition-colors ${selectedRecipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                    >
-                        <Pin size={20} className={selectedRecipe.isPinned ? "fill-current" : ""} />
-                    </button>
+                 <div className="flex gap-2 shrink-0 mt-1">
                     <button 
                         onClick={(e) => toggleFavorite(e, selectedRecipe.id)}
-                        className={`p-2 rounded-full transition-colors ${selectedRecipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/30' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        className={`p-2.5 rounded-full transition-colors border ${selectedRecipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-900' : 'text-slate-400 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
                     >
                         <Heart size={20} className={selectedRecipe.isFavorite ? "fill-current" : ""} />
+                    </button>
+                    
+                    {/* Bouton Supprimer ROUGE dans la modale */}
+                    <button 
+                        onClick={(e) => deleteRecipe(e, selectedRecipe.id)}
+                        className="p-2.5 rounded-full transition-colors text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 hover:bg-red-100 dark:hover:bg-red-900/40"
+                        title="Supprimer définitivement"
+                    >
+                        <Trash2 size={20} />
                     </button>
                  </div>
              </div>
              
+             {/* Modal Content */}
              <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-24">
-                 {selectedRecipe.description && (
-                     <p className="text-slate-600 dark:text-slate-400 italic text-sm border-l-4 border-emerald-500 pl-4 py-1">
-                       {selectedRecipe.description}
-                     </p>
+                 
+                 {/* Description Block */}
+                 {(selectedRecipe.description || selectedRecipe.steps.length > 0) && (
+                     <div className="flex gap-3 items-start bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800/50">
+                        <AlignLeft size={20} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed italic">
+                           {selectedRecipe.description || selectedRecipe.steps[0]}
+                        </p>
+                     </div>
                  )}
                  
-                 <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 p-3 rounded-xl w-max">
-                     <Clock size={16} className="text-emerald-500" />
-                     <span className="font-medium">{selectedRecipe.prepTime || 'Temps libre'}</span>
+                 {/* Info Bar */}
+                 <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <Clock size={16} className="text-emerald-500" />
+                        <span className="font-bold">{selectedRecipe.prepTime || '20 min'}</span>
+                    </div>
+                    <div className="text-xs text-slate-400 font-medium">
+                        Créée le {new Date(selectedRecipe.createdAt).toLocaleDateString()}
+                    </div>
                  </div>
 
+                 {/* Ingrédients Block */}
                  <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm relative group">
                      <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                             Ingrédients
                         </h3>
@@ -197,26 +234,27 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                                 : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
                             }`}
                         >
-                            {loadingSection === 'ingredients' ? <Loader2 size={18} className="animate-spin" /> : 
-                             playingSection === 'ingredients' ? <StopCircle size={18} /> : 
-                             <Volume2 size={18} />}
+                            {loadingSection === 'ingredients' ? <Loader2 size={20} className="animate-spin" /> : 
+                             playingSection === 'ingredients' ? <StopCircle size={20} /> : 
+                             <Volume2 size={20} />}
                         </button>
                      </div>
                      <ul className="space-y-3">
                          {selectedRecipe.ingredients.map((ing, i) => (
-                             <li key={i} className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300">
-                                 <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0 text-xs">
+                             <li key={i} className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300 py-1 border-b border-slate-50 dark:border-slate-800 last:border-0">
+                                 <div className="w-8 h-8 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center shrink-0 text-sm">
                                      {getIngredientEmoji(ing)}
                                  </div>
-                                 <span className="leading-relaxed">{ing}</span>
+                                 <span className="leading-relaxed font-medium">{ing}</span>
                              </li>
                          ))}
                      </ul>
                  </div>
 
+                 {/* Preparation Block */}
                  <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
                      <div className="flex justify-between items-center mb-4">
-                         <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                         <h3 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                              Préparation
                          </h3>
@@ -228,18 +266,18 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                                 : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20'
                             }`}
                         >
-                            {loadingSection === 'steps' ? <Loader2 size={18} className="animate-spin" /> :
-                             playingSection === 'steps' ? <StopCircle size={18} /> : 
-                             <Volume2 size={18} />}
+                            {loadingSection === 'steps' ? <Loader2 size={20} className="animate-spin" /> :
+                             playingSection === 'steps' ? <StopCircle size={20} /> : 
+                             <Volume2 size={20} />}
                         </button>
                      </div>
                      <div className="space-y-6">
                          {selectedRecipe.steps.map((step, i) => (
                              <div key={i} className="flex gap-4">
-                                 <span className="flex-shrink-0 w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-300 text-sm font-bold flex items-center justify-center border border-slate-200 dark:border-slate-600">
+                                 <span className="flex-shrink-0 w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 text-sm font-bold flex items-center justify-center border border-slate-200 dark:border-slate-600 mt-0.5">
                                      {i + 1}
                                  </span>
-                                 <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed pt-1">{step}</p>
+                                 <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{step}</p>
                              </div>
                          ))}
                      </div>
@@ -249,7 +287,7 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
           document.body
       )}
 
-      {/* Main Page Header */}
+      {/* --- LIST HEADER --- */}
       <div className="pt-10 pb-6 px-6 bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 shadow-sm transition-colors duration-300 sticky top-0 z-10">
          <div className="flex justify-between items-center mb-4">
             <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
@@ -273,7 +311,7 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
          </div>
       </div>
 
-      {/* Recipe List */}
+      {/* --- RECIPE LIST --- */}
       <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-3 scroll-smooth">
          {savedRecipes.length === 0 ? (
              <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-600 animate-in fade-in">
@@ -288,8 +326,9 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                  <div 
                     key={recipe.id}
                     onClick={() => setSelectedRecipe(recipe)}
-                    className={`group bg-white dark:bg-slate-800 p-4 rounded-2xl border shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800 transition-all active:scale-95 cursor-pointer flex flex-col gap-3 relative overflow-hidden ${recipe.isPinned ? 'border-emerald-500/30 dark:border-emerald-500/30' : 'border-slate-100 dark:border-slate-700'}`}
+                    className={`group bg-white dark:bg-slate-800 p-4 rounded-2xl border shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800 transition-all active:scale-[0.98] cursor-pointer flex flex-col gap-3 relative overflow-hidden ${recipe.isPinned ? 'border-emerald-500/40 dark:border-emerald-500/40 bg-emerald-50/10 dark:bg-emerald-900/5' : 'border-slate-100 dark:border-slate-700'}`}
                  >
+                     {/* Épinglette visuelle */}
                      {recipe.isPinned && (
                         <div className="absolute top-0 right-0 p-1.5 bg-emerald-500 rounded-bl-xl text-white shadow-sm z-10">
                             <Pin size={12} className="fill-current" />
@@ -297,55 +336,57 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                      )}
 
                      <div className="flex justify-between items-start pr-6">
-                         {/* Titre sur 2 lignes maximum pour mieux voir */}
-                         <h3 className="font-bold text-slate-800 dark:text-white line-clamp-2 text-base group-hover:text-emerald-600 transition-colors leading-tight">{recipe.title}</h3>
-                         {recipe.prepTime && (
-                             <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-medium ml-2">
-                                 <Clock size={10} /> {recipe.prepTime}
-                             </span>
-                         )}
+                         {/* Titre */}
+                         <div className="flex flex-col">
+                            <h3 className={`font-bold text-base leading-tight line-clamp-2 ${recipe.isPinned ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-800 dark:text-white'}`}>
+                                {recipe.title}
+                            </h3>
+                            {/* Temps de préparation affiché clairement sous le titre */}
+                            <span className="text-xs text-slate-400 dark:text-slate-500 font-bold mt-1 flex items-center gap-1">
+                                 <Clock size={12} className="text-emerald-500" /> 
+                                 {recipe.prepTime || "20 min"}
+                            </span>
+                         </div>
                      </div>
                      
-                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                         {recipe.description || recipe.steps[0]}
+                     {/* Description ou première étape (Affichage forcé de 2 lignes) */}
+                     <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed h-8 opacity-90">
+                         {recipe.description || recipe.steps[0] || "Aucune description disponible."}
                      </p>
 
-                     <div className="flex items-center justify-between mt-1">
+                     <div className="flex items-center justify-between mt-1 pt-2 border-t border-slate-50 dark:border-slate-800">
+                        {/* Résumé Ingrédients */}
                         <div className="flex items-center gap-2">
-                            {/* Ingrédients avec Emojis */}
                             <div className="flex -space-x-1.5 overflow-hidden">
                             {recipe.ingredients.slice(0, 4).map((ing, i) => (
                                 <div key={i} className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 border border-white dark:border-slate-800 flex items-center justify-center text-[10px] shadow-sm relative z-0">
                                     {getIngredientEmoji(ing)}
                                 </div>
                             ))}
-                            {recipe.ingredients.length > 4 && (
-                                <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 border border-white dark:border-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500 relative z-10">
-                                    +{recipe.ingredients.length - 4}
-                                </div>
-                            )}
                             </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium ml-1">
-                                {recipe.ingredients.length} ingr.
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold ml-1">
+                                {recipe.ingredients.length} ingrédients
                             </span>
                         </div>
                         
-                        <div className="flex gap-1 relative z-10" onClick={(e) => e.stopPropagation()}>
+                        {/* Actions Rapides - Z-INDEX CORRIGÉ ET STOP PROPAGATION */}
+                        <div className="flex gap-1 relative z-20" onClick={(e) => e.stopPropagation()}>
                              <button 
                                 onClick={(e) => deleteRecipe(e, recipe.id)}
-                                className="p-1.5 rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                className="w-8 h-8 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-90"
+                                title="Supprimer"
                              >
                                 <Trash2 size={16} />
                              </button>
                              <button 
                                 onClick={(e) => togglePin(e, recipe.id)}
-                                className={`p-1.5 rounded-full transition-colors ${recipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-slate-300 hover:text-emerald-500'}`}
+                                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${recipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-slate-300 hover:text-emerald-500'}`}
                              >
                                 <Pin size={16} className={recipe.isPinned ? "fill-current" : ""} />
                              </button>
                              <button 
                                 onClick={(e) => toggleFavorite(e, recipe.id)}
-                                className={`p-1.5 rounded-full transition-colors ${recipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/20' : 'text-slate-300 hover:text-rose-500'}`}
+                                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${recipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/20' : 'text-slate-300 hover:text-rose-500'}`}
                              >
                                 <Heart size={16} className={recipe.isFavorite ? "fill-current" : ""} />
                              </button>
