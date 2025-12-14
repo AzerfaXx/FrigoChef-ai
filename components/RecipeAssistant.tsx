@@ -133,7 +133,13 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
         setIsConnectingLive(true);
         const cleanup = await startLiveTranscription(
             (text) => {
-                setInputValue(prev => prev + text);
+                setInputValue(prev => {
+                    // Smart spacing logic: Add space if prev text exists, doesn't end in space, 
+                    // and new text doesn't start with space or punctuation.
+                    const needsSpace = prev.length > 0 && !prev.endsWith(' ') && !text.startsWith(' ') && !/^[.,?!;:]/.test(text);
+                    return prev + (needsSpace ? ' ' : '') + text;
+                });
+                
                 // Auto-scroll input
                 if (textareaRef.current) {
                     textareaRef.current.scrollTop = textareaRef.current.scrollHeight;

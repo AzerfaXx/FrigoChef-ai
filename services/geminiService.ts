@@ -358,7 +358,14 @@ export const stopAudio = () => {
     if (globalSource) { try { globalSource.stop(); } catch (e) {} globalSource = null; }
 };
 
-// --- 3. Live Transcription (With Downsampling) ---
+// --- 3. Live Transcription (With Downsampling & Anti-GC) ---
+
+// Extend window to prevent GC of ScriptProcessor
+declare global {
+  interface Window {
+    __liveScriptProcessor: ScriptProcessorNode | null;
+  }
+}
 
 export const startLiveTranscription = async (
     onTranscriptionUpdate: (text: string) => void,
@@ -366,9 +373,13 @@ export const startLiveTranscription = async (
 ) => {
     const ai = getAiClient();
     
-    // Create AudioContext first to get the device's native sample rate (often 44100 or 48000 on mobile)
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     const audioContext = new AudioContextClass();
+    
+    // CRITICAL: Force Resume for Mobile Safari/Chrome if created in suspended state
+    if (audioContext.state === 'suspended') {
+        try { await audioContext.resume(); } catch (e) { console.error("Could not resume audio context", e); }
+    }
     
     // Request microphone access
     const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -380,8 +391,18 @@ export const startLiveTranscription = async (
         }
     });
     
+    // Double check state after stream acquisition
+    if (audioContext.state === 'suspended') {
+        try { await audioContext.resume(); } catch (e) { console.error("Could not resume audio context after stream", e); }
+    }
+    
     const source = audioContext.createMediaStreamSource(stream);
-    const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+    // Lower buffer size (2048) for lower latency on transcription
+    const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
+    
+    // CRITICAL: Assign to global window to prevent Garbage Collection on mobile
+    window.__liveScriptProcessor = scriptProcessor;
+
     const TARGET_SAMPLE_RATE = 16000;
     
     const sessionPromise = ai.live.connect({
@@ -399,25 +420,34 @@ export const startLiveTranscription = async (
         },
         config: {
             responseModalities: [Modality.AUDIO], 
+            generationConfig: {
+                temperature: 0, // IMPORTANT: 0 temperature forces deterministic output (correct spelling)
+            },
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+            // CRITICAL: System Prompt for Phonetic Correction
             systemInstruction: `
-            ROLE: Transcription vocale phonétique HAUTE PRÉCISION.
+            CONTEXTE : Transcription Speech-to-Text (STT) pour une application de CUISINE.
             
-            [CONTEXTE] : Cuisine, Frigo, Courses.
+            TA TÂCHE UNIQUE :
+            Tu es un transcripteur professionnel. Tu dois écouter le flux audio et écrire EXACTEMENT ce qui est dit, en appliquant un filtre "CULINAIRE" strict.
             
-            [CORRECTIONS PHONÉTIQUES OBLIGATOIRES] :
-            - "Style", "Stick", "Stique" -> Écris **STEAK**.
-            - "Pattes", "Pote" -> Écris **PÂTES** ou **PATATES**.
-            - "Laid", "Les" -> Écris **LAIT**.
-            - "Celle" -> Écris **SEL**.
-            - "Peau" -> Écris **POT** ou **EAU**.
-            - "Cour gilet" -> Écris **COURGETTE**.
-
-            [RÈGLES DE SORTIE] :
-            - Transcris EXACTEMENT ce que l'utilisateur dit, mais corrige les mots alimentaires mal compris.
-            - N'ajoute pas de ponctuation excessive.
-            - Formatage des dates : "le 12", "demain", "dans 3 jours".
-            - Formatage des chiffres : "3 pommes", "500g".
+            RÈGLES D'OR DE TRANSCRIPTION (OBLIGATOIRES) :
+            1. NE JAMAIS INTERPRÉTER ou répondre. Écris seulement ce que tu entends.
+            2. IGNORE les hésitations ("euh", "bah", "hum").
+            3. Si tu entends un mot qui ressemble phonétiquement à un aliment, ÉCRIS L'ALIMENT.
+            
+            DICTIONNAIRE DE CORRECTION PHONÉTIQUE (PRIORITÉ ABSOLUE) :
+            - Si tu entends /pat/ ou "pattes" -> ÉCRIS "Pâtes".
+            - Si tu entends /stik/, "style" ou "stick" -> ÉCRIS "Steak".
+            - Si tu entends /patat/ ou "pattes hat" -> ÉCRIS "Patates".
+            - Si tu entends /lɛ/ ou "les" -> ÉCRIS "Lait".
+            - Si tu entends /sɛl/ ou "celle" -> ÉCRIS "Sel".
+            - Si tu entends "thon" ou "temps" -> ÉCRIS "Thon".
+            - Si tu entends "courgette" -> ÉCRIS "Courgettes".
+            
+            FORMATAGE :
+            - Mets une majuscule en début de phrase.
+            - Utilise les chiffres pour les quantités (ex: "3 oeufs", "500g").
             `,
             inputAudioTranscription: {}, 
         }
@@ -438,6 +468,8 @@ export const startLiveTranscription = async (
     scriptProcessor.connect(audioContext.destination);
 
     return () => {
+        // Cleanup
+        window.__liveScriptProcessor = null;
         scriptProcessor.disconnect();
         source.disconnect();
         stream.getTracks().forEach(t => t.stop());
