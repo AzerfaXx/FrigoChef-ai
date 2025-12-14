@@ -1,0 +1,7 @@
+{
+  "name": "FrigoChef AI",
+  "description": "Assistant de cuisine intelligent pour gérer vos stocks, générer des recettes et faire vos courses avec Gemini.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
