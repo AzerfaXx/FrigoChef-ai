@@ -617,7 +617,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                     onClick={toggleRecording}
                     className={`p-3.5 rounded-full transition-all active:scale-95 flex-shrink-0 flex items-center justify-center shadow-sm cursor-pointer ${
                         isRecording 
-                        ? 'bg-rose-500 text-white animate-pulse ring-4 ring-rose-100 dark:ring-rose-900/30' 
+                        ? 'bg-rose-500 text-white' 
                         : isConnectingLive
                         ? 'bg-amber-100 text-amber-600 cursor-wait'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -626,7 +626,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                     {isRecording ? <StopCircle size={22} /> : isConnectingLive ? <Loader2 size={22} className="animate-spin" /> : <Mic size={22} />}
                 </button>
 
-                <div className={`flex-1 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-all ${isRecording ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/10' : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10'}`}>
+                <div className={`flex-1 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-all ${isRecording ? 'border-rose-500 bg-rose-50/10' : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10'}`}>
                     {isRecording ? (
                         <div className="flex-1 flex items-center gap-2 h-[52px] px-4">
                              <div className="relative flex h-3 w-3 shrink-0">
