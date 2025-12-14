@@ -3,26 +3,17 @@ import { Ingredient, ShoppingItem } from "../types";
 
 // Initialize the client
 const getAiClient = () => {
-  // 1. Check Local Storage (User Settings) - Priority to allow user correction
-  const storedKey = localStorage.getItem('fc_api_key');
-  if (storedKey) return new GoogleGenAI({ apiKey: storedKey });
-
-  // 2. Check Environment (Deployment)
-  // Filter out potential placeholder values if leaked
-  if (process.env.API_KEY && !process.env.API_KEY.includes("LEAKED")) {
-      return new GoogleGenAI({ apiKey: process.env.API_KEY });
-  }
-  
-  // 3. Fallback to User Provided Key
-  // This allows the app to work out-of-the-box, but allows override via Profile if blocked.
-  return new GoogleGenAI({ apiKey: "AIzaSyDpF6Q7i2BQbC1CovL01il0cZNf6ooaWiA" });
+  // Direct integration of the key. 
+  // We removed LocalStorage check to ensure the valid key is used even if a user had a bad key saved before.
+  const apiKey = process.env.API_KEY || "AIzaSyDpF6Q7i2BQbC1CovL01il0cZNf6ooaWiA";
+  return new GoogleGenAI({ apiKey });
 };
 
 // --- Tool Definitions ---
 
 const addToInventoryTool: FunctionDeclaration = {
   name: 'ajouterAuStock',
-  description: 'Ajouter des ingrédients au STOCK (Frigo/Placard). Utiliser si l\'utilisateur dit "J\'ai", "Il y a", OU si l\'utilisateur dit "Ajoute..." AVEC une date/péremption.',
+  description: 'Ajouter des ingrédients au STOCK (Frigo/Placard). A utiliser UNIQUEMENT quand l\'utilisateur dit "J\'ai acheté", "J\'ai pris", "Ajoute au stock", "Mets dans le frigo" (action PASSÉE/RÉALISÉE).',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -89,7 +80,7 @@ const updateInventoryTool: FunctionDeclaration = {
 
 const addToShoppingListTool: FunctionDeclaration = {
   name: 'ajouterAuPanier',
-  description: 'Ajouter des articles à la LISTE DE COURSES. Utiliser si l\'utilisateur dit "Ajoute", "Il faut", "Besoin de" SANS mentionner de date de péremption.',
+  description: 'Ajouter des articles à la LISTE DE COURSES. A utiliser quand l\'utilisateur dit "Ajoute du lait", "Il me faut", "On n\'a plus de", "Besoin de", "Ajoute à la liste" (besoin FUTUR).',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -237,12 +228,29 @@ export const chatWithChefStream = async function* (
   const systemInstruction = `
     Tu es FrigoChef. Date: ${fullDate}.
     
-    INTENTION:
-    1. STOCK (Inventaire) : Si l'utilisateur dit "J'ai...", "Ajoute... [DATE]", "Péremption".
-    2. COURSES (Liste) : Si l'utilisateur dit "Il faut...", "Ajoute... [SANS DATE]", "Acheter".
+    RÈGLES D'INTENTION STRICTES (NE PAS CONFONDRE LISTE ET STOCK):
+    
+    1. LISTE DE COURSES (FUTUR/BESOIN): 
+       - Déclencheurs : "Ajoute du lait", "Il me faut...", "On n'a plus de...", "Besoin de...", "Ajoute à la liste".
+       - ACTION : UTILISE 'ajouterAuPanier'.
+       - NOTE : Si l'utilisateur dit juste "Ajoute des pommes" sans préciser "stock", c'est pour la LISTE par défaut.
 
-    CONTEXTE STOCK : ${inventoryContext}
-    CONTEXTE LISTE : ${shoppingContext}
+    2. GESTION STOCK (PASSÉ/ACTION FAITE): 
+       - Déclencheurs : "J'ai acheté...", "J'ai pris...", "Mets dans le frigo", "Ajoute au stock", "Je reviens des courses".
+       - ACTION : UTILISE 'ajouterAuStock'.
+       - Déclencheurs Retrait : "J'ai fini...", "Il n'y a plus de [item] dans le frigo", "J'ai jeté".
+       - ACTION : UTILISE 'retirerDuStock'.
+
+    3. RECETTE & SAUVEGARDE:
+       - Si demande de recette : ANALYSE LE STOCK ACTUEL. Propose des recettes réalisables (en priorité) avec le stock. 
+       - INGRÉDIENTS MANQUANTS : Vérifie d'abord s'ils sont déjà dans la LISTE DE COURSES ci-dessous avant de suggérer de les ajouter. S'ils n'y sont pas, propose de les ajouter.
+       - Si demande de sauvegarde ("Sauvegarde cette recette") : TU DOIS RÉCUPÉRER le titre, ingrédients et étapes de la DERNIÈRE recette générée dans la conversation précédente et appeler 'sauvegarderRecette' avec ces données.
+
+    CONTEXTE STOCK ACTUEL (Pour créer des recettes) : 
+    ${inventoryContext}
+
+    CONTEXTE LISTE COURSES ACTUELLE (Pour éviter doublons ou suggérer recettes futures) : 
+    ${shoppingContext}
     
     Calcule toujours les dates précises (ISO ${isoDate}).
   `;
@@ -405,23 +413,13 @@ export const startLiveTranscription = async (
                 speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
                 // OPTIMIZED SYSTEM PROMPT FOR COOKING INGREDIENTS
                 systemInstruction: `
-                CONTEXTE: Assistant de cuisine (Speech-to-Text).
-                TACHE: Transcrire EXCLUSIVEMENT la parole de l'utilisateur avec une précision phonétique sur les aliments.
+                CONTEXTE: Transcription Speech-to-Text CULINAIRE.
+                TACHE: Transcrire la parole en texte EXACTEMENT.
                 
-                DICTIONNAIRE DE CORRECTION (IMPÉRATIF):
-                - /pat/ -> "Pâtes" (JAMAIS "pattes" ou "patte")
-                - /stik/ -> "Steak" (JAMAIS "stick")
-                - /patat/ -> "Patates"
-                - /lɛ/ -> "Lait" (JAMAIS "les" ou "lé")
-                - /sɛl/ -> "Sel" (JAMAIS "celle")
-                - /riz/ -> "Riz" (JAMAIS "ri")
-                - /o/ -> "Eau"
-                - /courgette/ -> "Courgettes"
-                
-                RÈGLES:
-                1. Ignore les hésitations (euh, bah, hum).
-                2. Formate les listes avec des virgules.
-                3. Transcris les nombres en chiffres (3 oeufs, pas trois oeufs).
+                RÈGLES STRICTES:
+                1. ORTHOGRAPHE : "Pâtes" (pas pattes), "Steak" (pas stick), "Lait" (pas les).
+                2. NOMBRES : Écris TOUJOURS en CHIFFRES (ex: "3 oeufs", "1 litre", "250g").
+                3. NE PAS COUPER LES MOTS (ex: "steak" et pas "ste ak").
                 `,
                 inputAudioTranscription: {}, 
             }

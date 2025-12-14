@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { User, Moon, Sun, Camera, Settings, Shield, ToggleLeft, ToggleRight, Smartphone, Share, X, MoreVertical, Download, HelpCircle, Flame, Bell, Key } from 'lucide-react';
+import { User, Moon, Sun, Camera, Shield, ToggleLeft, ToggleRight, Smartphone, Share, X, MoreVertical, Download, HelpCircle, Flame, Bell } from 'lucide-react';
 
 interface Props {
   userProfile: UserProfile;
@@ -17,10 +17,6 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   const [newName, setNewName] = useState(userProfile.name);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // API Key State
-  const [apiKey, setApiKey] = useState('');
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  
   // PWA State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -31,10 +27,6 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   const [privateMode, setPrivateMode] = useState(false);
 
   useEffect(() => {
-    // Load stored key
-    const stored = localStorage.getItem('fc_api_key');
-    if (stored) setApiKey(stored);
-
     // 1. Detect if app is running in standalone mode (Installed App)
     const checkStandalone = () => {
         const mq = window.matchMedia('(display-mode: standalone)');
@@ -95,12 +87,6 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
   const saveName = () => {
     setUserProfile({ ...userProfile, name: newName });
     setIsEditingName(false);
-  };
-
-  const saveApiKey = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.value;
-      setApiKey(val);
-      localStorage.setItem('fc_api_key', val);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -258,39 +244,6 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
       {/* Settings Options - Scrollable Area */}
       <div className="flex-1 overflow-y-auto p-5 pb-24 space-y-4">
 
-         {/* API KEY SECTION (CRITICAL FOR USER) */}
-         <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900 p-4 rounded-2xl">
-            <div 
-                className="flex items-center gap-3 cursor-pointer"
-                onClick={() => setShowKeyInput(!showKeyInput)}
-            >
-                <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-600 flex items-center justify-center shrink-0">
-                    <Key size={18} />
-                </div>
-                <div className="flex-1">
-                    <p className="font-bold text-sm text-slate-800 dark:text-slate-100">Clé API Google</p>
-                    <p className="text-[10px] text-amber-600 dark:text-amber-500">
-                        {apiKey ? 'Clé configurée (Masquée)' : '⚠️ Requise pour utiliser l\'app'}
-                    </p>
-                </div>
-            </div>
-            
-            {showKeyInput && (
-                <div className="mt-3 animate-in fade-in slide-in-from-top-2">
-                    <input 
-                        type="password"
-                        value={apiKey}
-                        onChange={saveApiKey}
-                        placeholder="Collez votre clé API ici..."
-                        className="w-full p-2 text-sm border border-amber-200 dark:border-amber-800 rounded-lg outline-none focus:border-amber-500 bg-white dark:bg-slate-800 text-slate-700 dark:text-white"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-2">
-                        Obtenez une clé gratuite sur <a href="https://aistudiogoogle.com/app/apikey" target="_blank" className="underline text-blue-500">Google AI Studio</a>. La clé est stockée uniquement sur votre téléphone.
-                    </p>
-                </div>
-            )}
-         </div>
-
          {/* INSTALL APP BUTTON */}
          {!isStandalone && (
             <button 
@@ -356,7 +309,7 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
          
          <div className="text-center pt-4">
              <p className="text-[10px] text-slate-300 dark:text-slate-600">
-                 FrigoChef AI v1.4.0 (Secure)
+                 FrigoChef AI v1.5.0 (Auto-Connect)
              </p>
          </div>
       </div>

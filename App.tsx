@@ -59,6 +59,7 @@ const App: React.FC = () => {
     } catch (e) { return false; }
   });
 
+  // CHANGE: Default tab is ASSISTANT (Chef) per user request
   const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.ASSISTANT);
 
   // --- Persistence Effects (Save on Change) ---
@@ -230,6 +231,19 @@ const App: React.FC = () => {
     }
   };
 
+  // --- LOGIC: Move Checked Shopping Items to Stock ---
+  const moveCheckedToStock = (itemsToMove: ShoppingItem[]) => {
+      const newIngredients: Ingredient[] = itemsToMove.map(item => ({
+          id: Date.now().toString() + Math.random(),
+          name: item.name,
+          quantity: '1', // Quantité par défaut
+          expiryDate: null,
+          category: 'other' // Catégorie par défaut (l'utilisateur pourra modifier)
+      }));
+      
+      setIngredients(prev => [...prev, ...newIngredients]);
+  };
+
   // --- RENDER ---
 
   return (
@@ -255,7 +269,11 @@ const App: React.FC = () => {
 
             {/* Section 2: Shopping (Liste) */}
             <div className="w-1/5 h-full overflow-hidden relative">
-               <ShoppingList items={shoppingList} setItems={setShoppingList} />
+               <ShoppingList 
+                    items={shoppingList} 
+                    setItems={setShoppingList} 
+                    onAddToStock={moveCheckedToStock} // Pass the function here
+               />
             </div>
             
             {/* Section 3: Assistant (Chef) */}
@@ -266,7 +284,7 @@ const App: React.FC = () => {
                   setSavedRecipes={setSavedRecipes}
                   shoppingList={shoppingList}
                   setShoppingList={setShoppingList}
-                  isActive={currentTab === AppTab.ASSISTANT} // Pass active state to prevent background scrolling glitches
+                  isActive={currentTab === AppTab.ASSISTANT} 
               />
             </div>
             

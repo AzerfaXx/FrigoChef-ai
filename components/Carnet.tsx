@@ -1,14 +1,58 @@
-
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Recipe } from '../types';
-import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2 } from 'lucide-react';
+import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2, Trash2 } from 'lucide-react';
 import { playTextAsAudio, stopAudio } from '../services/geminiService';
 
 interface Props {
   savedRecipes: Recipe[];
   setSavedRecipes: React.Dispatch<React.SetStateAction<Recipe[]>>;
 }
+
+// Helper simple pour mapper des mots-clés d'ingrédients à des emojis
+const getIngredientEmoji = (name: string): string => {
+  const lower = name.toLowerCase();
+  
+  // Viandes & Poissons
+  if (lower.includes('poulet') || lower.includes('dinde') || lower.includes('volaille')) return '🍗';
+  if (lower.includes('boeuf') || lower.includes('steak') || lower.includes('viande')) return '🥩';
+  if (lower.includes('porc') || lower.includes('jambon') || lower.includes('lardon')) return '🥓';
+  if (lower.includes('poisson') || lower.includes('saumon') || lower.includes('thon')) return '🐟';
+  if (lower.includes('crevette') || lower.includes('gambas')) return '🍤';
+  if (lower.includes('oeuf')) return '🥚';
+
+  // Féculents
+  if (lower.includes('nouille') || lower.includes('spaghetti') || lower.includes('pâte')) return '🍜';
+  if (lower.includes('riz')) return '🍚';
+  if (lower.includes('pain') || lower.includes('toast') || lower.includes('baguette')) return '🥖';
+  if (lower.includes('pomme de terre') || lower.includes('patate') || lower.includes('frite')) return '🥔';
+
+  // Légumes & Fruits
+  if (lower.includes('tomate')) return '🍅';
+  if (lower.includes('salade') || lower.includes('laitue')) return '🥬';
+  if (lower.includes('carotte')) return '🥕';
+  if (lower.includes('oignon') || lower.includes('ail') || lower.includes('échalote')) return '🧅';
+  if (lower.includes('brocoli')) return '🥦';
+  if (lower.includes('champignon')) return '🍄';
+  if (lower.includes('aubergine')) return '🍆';
+  if (lower.includes('maïs')) return '🌽';
+  if (lower.includes('avocat')) return '🥑';
+  if (lower.includes('piment') || lower.includes('poivron')) return '🌶️';
+  if (lower.includes('citron')) return '🍋';
+  if (lower.includes('fruit') || lower.includes('pomme') || lower.includes('fraise')) return '🍎';
+
+  // Laitages & Autres
+  if (lower.includes('fromage') || lower.includes('parmesan') || lower.includes('mozzarella')) return '🧀';
+  if (lower.includes('lait') || lower.includes('crème') || lower.includes('beurre')) return '🥛';
+  if (lower.includes('chocolat') || lower.includes('cacao')) return '🍫';
+  if (lower.includes('miel')) return '🍯';
+  if (lower.includes('sel') || lower.includes('poivre') || lower.includes('épice') || lower.includes('herbe')) return '🧂';
+  if (lower.includes('huile') || lower.includes('vinaigre') || lower.includes('sauce')) return '🫒';
+  if (lower.includes('vin') || lower.includes('bière')) return '🍷';
+  if (lower.includes('eau')) return '💧';
+
+  return '🥘'; // Défaut
+};
 
 const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
@@ -25,7 +69,7 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
     // Pinned items first
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;
-    // Then favorites (optional, let's say favorites are secondary priority)
+    // Then favorites
     if (a.isFavorite && !b.isFavorite) return -1;
     if (!a.isFavorite && b.isFavorite) return 1;
     // Finally by date
@@ -36,21 +80,17 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
       e.stopPropagation();
 
       if (playingSection === section) {
-          // If currently playing this section, stop it
           stopAudio();
           setPlayingSection(null);
           setLoadingSection(null);
       } else {
-          // If playing something else or nothing, start this
-          stopAudio(); // Ensure previous is stopped
-          setLoadingSection(section); // Show loading spinner immediately
-          setPlayingSection(null); // Clear previous playing state
+          stopAudio();
+          setLoadingSection(section);
+          setPlayingSection(null);
 
           playTextAsAudio(text, () => {
-              // Reset state when audio finishes naturally
               setPlayingSection(null);
           }).then(() => {
-              // Audio has started (or failed), remove loading, set playing
               setLoadingSection(null);
               setPlayingSection(section);
           });
@@ -65,6 +105,16 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
   const togglePin = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       setSavedRecipes(prev => prev.map(r => r.id === id ? { ...r, isPinned: !r.isPinned } : r));
+  };
+
+  const deleteRecipe = (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      if (window.confirm("Voulez-vous vraiment supprimer cette recette du carnet ?")) {
+          setSavedRecipes(prev => prev.filter(r => r.id !== id));
+          if (selectedRecipe?.id === id) {
+              closeModal();
+          }
+      }
   };
 
   const handlePlayIngredients = (e: React.MouseEvent, recipe: Recipe) => {
@@ -86,19 +136,26 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 transition-colors duration-300 relative">
-      {/* Detail Modal - Rendered via Portal to cover the entire App including Bottom Nav */}
+      {/* Detail Modal */}
       {selectedRecipe && createPortal(
           <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-900 flex flex-col animate-in slide-in-from-bottom-full duration-300">
-             <div className="pt-10 pb-4 px-6 border-b border-slate-100 dark:border-slate-800 flex items-center gap-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-20">
+             <div className="pt-10 pb-4 px-6 border-b border-slate-100 dark:border-slate-800 flex items-start gap-4 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-20">
                  <button 
                     onClick={closeModal}
-                    className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors"
+                    className="p-2 -ml-2 mt-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors shrink-0"
                  >
                      <ChevronRight className="rotate-180" />
                  </button>
-                 <h2 className="text-xl font-bold truncate flex-1 text-slate-900 dark:text-white">{selectedRecipe.title}</h2>
+                 {/* Titre complet visible ici (pas de truncate) */}
+                 <h2 className="text-xl font-bold flex-1 text-slate-900 dark:text-white leading-tight pt-1.5">{selectedRecipe.title}</h2>
                  
-                 <div className="flex gap-2">
+                 <div className="flex gap-1 shrink-0 mt-1">
+                    <button 
+                        onClick={(e) => deleteRecipe(e, selectedRecipe.id)}
+                        className="p-2 rounded-full transition-colors text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                        <Trash2 size={20} />
+                    </button>
                     <button 
                         onClick={(e) => togglePin(e, selectedRecipe.id)}
                         className={`p-2 rounded-full transition-colors ${selectedRecipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
@@ -113,6 +170,7 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                     </button>
                  </div>
              </div>
+             
              <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-24">
                  {selectedRecipe.description && (
                      <p className="text-slate-600 dark:text-slate-400 italic text-sm border-l-4 border-emerald-500 pl-4 py-1">
@@ -146,8 +204,10 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                      </div>
                      <ul className="space-y-3">
                          {selectedRecipe.ingredients.map((ing, i) => (
-                             <li key={i} className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-300">
-                                 <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 mt-1.5 shrink-0"></div>
+                             <li key={i} className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-300">
+                                 <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0 text-xs">
+                                     {getIngredientEmoji(ing)}
+                                 </div>
                                  <span className="leading-relaxed">{ing}</span>
                              </li>
                          ))}
@@ -237,9 +297,10 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                      )}
 
                      <div className="flex justify-between items-start pr-6">
-                         <h3 className="font-bold text-slate-800 dark:text-white line-clamp-1 text-base group-hover:text-emerald-600 transition-colors">{recipe.title}</h3>
+                         {/* Titre sur 2 lignes maximum pour mieux voir */}
+                         <h3 className="font-bold text-slate-800 dark:text-white line-clamp-2 text-base group-hover:text-emerald-600 transition-colors leading-tight">{recipe.title}</h3>
                          {recipe.prepTime && (
-                             <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-medium">
+                             <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-medium ml-2">
                                  <Clock size={10} /> {recipe.prepTime}
                              </span>
                          )}
@@ -251,17 +312,31 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
 
                      <div className="flex items-center justify-between mt-1">
                         <div className="flex items-center gap-2">
+                            {/* Ingrédients avec Emojis */}
                             <div className="flex -space-x-1.5 overflow-hidden">
-                            {recipe.ingredients.slice(0, 4).map((_, i) => (
-                                <div key={i} className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 border border-white dark:border-slate-800"></div>
+                            {recipe.ingredients.slice(0, 4).map((ing, i) => (
+                                <div key={i} className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 border border-white dark:border-slate-800 flex items-center justify-center text-[10px] shadow-sm relative z-0">
+                                    {getIngredientEmoji(ing)}
+                                </div>
                             ))}
+                            {recipe.ingredients.length > 4 && (
+                                <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 border border-white dark:border-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500 relative z-10">
+                                    +{recipe.ingredients.length - 4}
+                                </div>
+                            )}
                             </div>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                            {recipe.ingredients.length} ingrédients
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium ml-1">
+                                {recipe.ingredients.length} ingr.
                             </span>
                         </div>
                         
-                        <div className="flex gap-2 relative z-10" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex gap-1 relative z-10" onClick={(e) => e.stopPropagation()}>
+                             <button 
+                                onClick={(e) => deleteRecipe(e, recipe.id)}
+                                className="p-1.5 rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                             >
+                                <Trash2 size={16} />
+                             </button>
                              <button 
                                 onClick={(e) => togglePin(e, recipe.id)}
                                 className={`p-1.5 rounded-full transition-colors ${recipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-slate-300 hover:text-emerald-500'}`}

@@ -8,7 +8,7 @@ import {
   pcmToAudioBuffer,
   startLiveTranscription,
 } from '../services/geminiService';
-import { Mic, Send, Bot, Sparkles, Volume2, VolumeX, Globe, Loader2, StopCircle, ChefHat, X, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Mic, Send, Bot, Sparkles, Volume2, VolumeX, Globe, Loader2, StopCircle, ChefHat, X, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Props {
   ingredients: Ingredient[];
@@ -35,12 +35,50 @@ const FormattedText: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
+// --- SUGGESTION MODES DEFINITION ---
+// Phrases optimisées pour déclencher les outils à 100%
+const SUGGESTION_MODES = [
+    { 
+        id: 'shopping', 
+        label: 'Liste de Courses', 
+        icon: '📝',
+        prompts: [
+            "Ajoute du lait à la liste", 
+            "Il me faut des oeufs et du beurre", 
+            "On n'a plus de pain (ajouter liste)",
+            "Rajoute des pâtes et du riz"
+        ] 
+    },
+    { 
+        id: 'stock', 
+        label: 'Gérer le Stock', 
+        icon: '🧊',
+        prompts: [
+            "J'ai acheté 500g de viande", 
+            "Ajoute 1kg de pommes au stock", 
+            "J'ai fini le lait (retirer du stock)",
+            "Mets 6 oeufs dans le frigo"
+        ] 
+    },
+    { 
+        id: 'cooking', 
+        label: 'Cuisiner', 
+        icon: '🍳',
+        prompts: [
+            "Trouve une recette avec mon stock", 
+            "Idée de repas rapide ce soir", 
+            "Recette végétarienne simple",
+            "Qu'est-ce que je peux cuisiner ?"
+        ] 
+    }
+];
+
 const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSavedRecipes, shoppingList, setShoppingList, isActive }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '0',
       role: 'model',
-      text: "Salut ! Je suis FrigoChef. 👨‍🍳\nOn cuisine quoi de bon aujourd'hui ?"
+      text: "Salut Chef ! 👨‍🍳\nJe gère ton stock, ta liste et tes recettes. Par quoi on commence ?"
     }
   ]);
   const [inputValue, setInputValue] = useState('');
@@ -49,6 +87,9 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   const [isThinking, setIsThinking] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isAutoPlay, setIsAutoPlay] = useState(true);
+  
+  // Suggestion Mode State - Default to 0 (Shopping List) per user request
+  const [modeIndex, setModeIndex] = useState(0);
 
   // Error State
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -69,38 +110,50 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   const isAutoPlayRef = useRef(isAutoPlay);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // --- Dynamic Suggestions Logic (Cleaned Emojis) ---
-  const getDynamicSuggestions = () => {
-    const lastMsg = messages[messages.length - 1];
-    const isAi = lastMsg?.role === 'model';
-    const text = lastMsg?.text || '';
-
-    // Scenario 1: Recipe was just generated
-    const isRecipe = isAi && (text.includes('Ingrédients') || text.includes('Préparation') || text.includes('Instructions'));
+  // --- Auto-Detect Mode based on Context ---
+  useEffect(() => {
+    if (messages.length <= 1) return;
     
-    if (isRecipe) {
-        return [
-            "Sauvegarde cette recette",
-            "Ajoute les ingrédients à ma liste"
-        ];
+    const lastMsg = messages[messages.length - 1];
+    
+    // Analyse simple du texte de l'IA pour ajuster le mode SI ET SEULEMENT SI aucune action n'a été faite.
+    // La priorité est donnée aux actions d'outils (voir handleSend)
+    if (lastMsg.role === 'model') {
+        const textLower = lastMsg.text.toLowerCase();
+        
+        // Si l'IA pose une question spécifique, on peut orienter
+        if (textLower.includes('courses') || textLower.includes('liste')) {
+            // Ne rien faire, laisser l'utilisateur choisir ou rester sur le mode actuel s'il est pertinent
+        }
     }
+  }, [messages]);
 
-    // Scenario 2: Empty Stock
-    if (ingredients.length === 0) {
-        return [
-            "Ajoute 6 oeufs et du lait",
-            "Ajoute du beurre à la liste"
-        ];
-    }
-
-    // Scenario 3: Stock has items
-    return [
-        "Que cuisiner avec mon stock ?",
-        "Idée de dîner rapide"
-    ];
+  const cycleMode = (direction: 'next' | 'prev') => {
+      setModeIndex(prev => {
+          if (direction === 'next') return (prev + 1) % SUGGESTION_MODES.length;
+          return (prev - 1 + SUGGESTION_MODES.length) % SUGGESTION_MODES.length;
+      });
   };
 
-  const currentSuggestions = getDynamicSuggestions().slice(0, 2); 
+  // --- DYNAMIC SUGGESTIONS LOGIC ---
+  const getSmartSuggestions = () => {
+      const lastMsg = messages[messages.length - 1];
+      
+      // CAS SPÉCIAL : Une recette vient d'être générée
+      if (lastMsg.role === 'model' && (lastMsg.text.includes('Ingrédients') && lastMsg.text.includes('Instructions'))) {
+          // On force des suggestions de cuisine/sauvegarde
+          return [
+              "Sauvegarder cette recette",
+              "Ajoute les ingrédients manquants à la liste",
+              "Donne-moi une autre recette"
+          ];
+      }
+
+      // CAS GÉNÉRAL : On obéit au mode sélectionné (List, Stock ou Cuisine)
+      return SUGGESTION_MODES[modeIndex].prompts;
+  };
+
+  const currentSuggestions = getSmartSuggestions();
   const showSuggestions = inputValue.length === 0 && !isLoading;
 
   const scrollToBottom = () => {
@@ -137,10 +190,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
         setIsConnectingLive(true);
         const cleanup = await startLiveTranscription(
             (text) => {
-                setInputValue(prev => {
-                    const needsSpace = prev.length > 0 && !prev.endsWith(' ') && !text.startsWith(' ') && !/^[.,?!;:]/.test(text);
-                    return prev + (needsSpace ? ' ' : '') + text;
-                });
+                setInputValue(prev => prev + text);
                 if (textareaRef.current) {
                     textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
                 }
@@ -397,7 +447,6 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                accumulatedText += textChunk;
                sentenceBuffer += textChunk;
                
-               // INSTANT START LOGIC (LOW LATENCY)
                if (!firstChunkProcessed && sentenceBuffer.length > 25) { 
                    const lastSpace = sentenceBuffer.lastIndexOf(' ');
                    if (lastSpace > 0) {
@@ -469,22 +518,27 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                          const itemNames = result.map((i: any) => i.name).join(', ');
                          toolOutput += `\n\n✅ Ajouté : **${itemNames}** au stock.`;
                          queueAudioChunk("C'est fait, j'ai ajouté ça au stock.");
+                         setModeIndex(1); // Force Stock Mode
                      } else if (call.name === 'retirerDuStock') {
                          const itemNames = result.removed.join(', ');
                          toolOutput += `\n\n🗑️ Retiré : **${itemNames}** du stock.`;
                          queueAudioChunk("C'est noté, j'ai retiré ces articles.");
+                         setModeIndex(1); // Force Stock Mode
                      } else if (call.name === 'modifierStock') {
                          if (result.modified) {
                             toolOutput += `\n\n✏️ Modifié : **${result.modified.name}** (${result.modified.quantity}).`;
                             queueAudioChunk(`Stock mis à jour pour ${result.modified.name}.`);
                          }
+                         setModeIndex(1); // Force Stock Mode
                      } else if (call.name === 'ajouterAuPanier') {
                          const items = result.added.join(', ');
                          toolOutput += `\n\n🛒 Ajouté liste : **${items}**.`;
                          queueAudioChunk("J'ai ajouté ça à votre liste de courses.");
+                         setModeIndex(0); // Force Shopping List Mode
                      } else if (call.name === 'sauvegarderRecette') {
                          toolOutput += `\n\n📖 Recette **${result.title}** sauvegardée !`;
                          queueAudioChunk("J'ai sauvegardé cette recette.");
+                         setModeIndex(2); // Stay on Cooking Mode
                      }
                  }
              }
@@ -493,6 +547,11 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                  setTimeout(() => {
                      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: accumulatedText } : m));
                  }, 100);
+             }
+         } else {
+             // S'il n'y a pas eu d'appel d'outil, mais que le texte ressemble à une recette, on passe en mode cuisine
+             if (accumulatedText.includes('Ingrédients') && accumulatedText.includes('Instructions')) {
+                 setModeIndex(2);
              }
          }
       }
@@ -606,38 +665,59 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       {/* Input Area */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md z-30 shrink-0 pb-safe relative transition-all border-t border-slate-100 dark:border-slate-800/50">
          
-         {/* Dynamic Suggestions */}
+         {/* TOOLBAR: Mode Switcher & Web Toggle */}
+         <div className="flex items-center justify-between px-4 pt-3 pb-1">
+             
+             {/* Web Toggle */}
+             <button 
+                type="button"
+                onClick={() => setUseSearch(!useSearch)}
+                className={`p-2 rounded-full border shadow-sm transition-all cursor-pointer flex items-center justify-center ${useSearch ? 'bg-blue-500 border-blue-600 text-white' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-blue-500'}`}
+                title="Recherche Web"
+             >
+                <Globe size={16} />
+             </button>
+
+             {/* Mode Navigator */}
+             <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 rounded-full p-1 shadow-inner">
+                <button 
+                    onClick={() => cycleMode('prev')} 
+                    className="p-1.5 rounded-full hover:bg-white dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-all active:scale-95"
+                >
+                    <ChevronLeft size={14} />
+                </button>
+                <div className="flex items-center gap-1.5 px-2 min-w-[110px] justify-center">
+                    <span className="text-sm">{SUGGESTION_MODES[modeIndex].icon}</span>
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{SUGGESTION_MODES[modeIndex].label}</span>
+                </div>
+                <button 
+                    onClick={() => cycleMode('next')} 
+                    className="p-1.5 rounded-full hover:bg-white dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-all active:scale-95"
+                >
+                    <ChevronRight size={14} />
+                </button>
+             </div>
+
+             <div className="w-8"></div> {/* Spacer for balance */}
+         </div>
+
+         {/* Suggestions Chips */}
          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showSuggestions ? 'max-h-24 opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
             <div className="flex items-stretch gap-2 px-2 py-2">
-                {currentSuggestions.map((suggestion, idx) => (
+                {currentSuggestions.slice(0, 3).map((suggestion, idx) => (
                     <button
                         key={idx}
                         type="button"
                         onClick={() => handleSend(suggestion)}
-                        className="flex-1 min-w-0 text-[10px] px-2 py-2 bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 whitespace-normal text-center leading-tight hover:from-emerald-50 hover:to-emerald-100 dark:hover:from-emerald-900/30 dark:hover:to-emerald-900/50 hover:text-emerald-800 dark:hover:text-emerald-300 hover:border-emerald-200 dark:hover:border-emerald-800 transition-all font-medium flex flex-col items-center justify-center gap-1 shadow-sm cursor-pointer"
+                        className="flex-1 min-w-0 text-[10px] px-2 py-2 bg-gradient-to-br from-white to-slate-50 dark:from-slate-800 dark:to-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 whitespace-normal text-center leading-tight hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md transition-all font-medium flex flex-col items-center justify-center gap-1 shadow-sm cursor-pointer group"
                     >
-                        <span className="line-clamp-2">{suggestion}</span>
+                        <span className="line-clamp-2 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">{suggestion}</span>
                     </button>
                 ))}
             </div>
          </div>
 
          <div className="p-4 pt-1">
-            {/* Web Toggle */}
-            <div className="absolute top-0 left-0 right-0 flex items-center justify-center -translate-y-1/2 px-4 pointer-events-none">
-                <div className="h-px bg-slate-200 dark:bg-slate-700 flex-1"></div>
-                <div className="pointer-events-auto px-2">
-                    <button 
-                    type="button"
-                    onClick={() => setUseSearch(!useSearch)}
-                    className={`text-[10px] font-bold flex items-center gap-1.5 px-3 py-1 rounded-full border shadow-sm transition-all cursor-pointer ${useSearch ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500'}`}
-                    >
-                    <Globe size={10} /> Web {useSearch ? 'ON' : 'OFF'}
-                    </button>
-                </div>
-                <div className="h-px bg-slate-200 dark:bg-slate-700 flex-1"></div>
-            </div>
-
             <div className="flex gap-2 items-end mt-2">
                 <button
                     type="button"

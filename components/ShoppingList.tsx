@@ -1,11 +1,11 @@
-
 import React, { useState } from 'react';
 import { ShoppingItem, ShoppingListTemplate } from '../types';
-import { Check, Plus, Trash2, LayoutTemplate, Save, X, Pencil, ChevronDown, ShoppingCart } from 'lucide-react';
+import { Check, Plus, Trash2, LayoutTemplate, Save, X, Pencil, ChevronDown, ShoppingCart, Archive } from 'lucide-react';
 
 interface Props {
   items: ShoppingItem[];
   setItems: React.Dispatch<React.SetStateAction<ShoppingItem[]>>;
+  onAddToStock: (items: ShoppingItem[]) => void;
 }
 
 const DEFAULT_TEMPLATES: ShoppingListTemplate[] = [
@@ -14,7 +14,7 @@ const DEFAULT_TEMPLATES: ShoppingListTemplate[] = [
   { id: '3', name: 'Essentiels', items: ['Lait', 'Beurre', 'Pain', 'Riz', 'Oignons'] },
 ];
 
-const ShoppingList: React.FC<Props> = ({ items, setItems }) => {
+const ShoppingList: React.FC<Props> = ({ items, setItems, onAddToStock }) => {
   const [newItemName, setNewItemName] = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState<ShoppingListTemplate[]>(DEFAULT_TEMPLATES);
@@ -87,6 +87,16 @@ const ShoppingList: React.FC<Props> = ({ items, setItems }) => {
 
   const toggleExpand = (id: string) => {
       setExpandedId(expandedId === id ? null : id);
+  };
+
+  // --- Logic for Transfer ---
+  const checkedItems = items.filter(i => i.checked);
+  
+  const handleTransferToStock = () => {
+      if (checkedItems.length === 0) return;
+      onAddToStock(checkedItems);
+      // Remove checked items from list
+      setItems(prev => prev.filter(i => !i.checked));
   };
 
   return (
@@ -260,7 +270,7 @@ const ShoppingList: React.FC<Props> = ({ items, setItems }) => {
           </div>
 
           {/* List Content */}
-          <div className="p-4 space-y-2.5 pb-32">
+          <div className="p-4 space-y-2.5 pb-44">
             {items.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-600 animate-in fade-in zoom-in-95">
                     <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-4 text-slate-300 dark:text-slate-500">
@@ -301,6 +311,22 @@ const ShoppingList: React.FC<Props> = ({ items, setItems }) => {
             </div>
             ))}
          </div>
+         
+         {/* FLOATING ACTION BUTTON FOR TRANSFER */}
+         {checkedItems.length > 0 && (
+             <div className="absolute bottom-24 left-0 right-0 px-4 flex justify-center z-30 animate-in slide-in-from-bottom-6 fade-in duration-300 pointer-events-none">
+                 <button 
+                    onClick={handleTransferToStock}
+                    className="pointer-events-auto bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3.5 rounded-full shadow-2xl flex items-center gap-3 active:scale-95 transition-all hover:scale-105 border-2 border-slate-700 dark:border-slate-200"
+                 >
+                     <div className="bg-emerald-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
+                         {checkedItems.length}
+                     </div>
+                     <span className="font-bold text-sm pr-1">Ajouter au Stock</span>
+                     <Archive size={18} />
+                 </button>
+             </div>
+         )}
       </div>
 
       <style>{`
