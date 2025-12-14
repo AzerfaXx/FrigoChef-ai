@@ -50,6 +50,15 @@ const App: React.FC = () => {
       } catch (e) { return { name: 'Chef' }; }
   });
 
+  // 6. Streak & Notifications
+  const [streak, setStreak] = useState(0);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fc_notifications');
+      return saved ? JSON.parse(saved) : false;
+    } catch (e) { return false; }
+  });
+
   const [currentTab, setCurrentTab] = useState<AppTab>(AppTab.ASSISTANT);
 
   // --- Persistence Effects (Save on Change) ---
@@ -71,6 +80,10 @@ const App: React.FC = () => {
   }, [userProfile]);
 
   useEffect(() => {
+    localStorage.setItem('fc_notifications', JSON.stringify(notificationsEnabled));
+  }, [notificationsEnabled]);
+
+  useEffect(() => {
     localStorage.setItem('fc_darkmode', JSON.stringify(darkMode));
     if (darkMode) {
       document.documentElement.classList.add('dark');
@@ -78,6 +91,81 @@ const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // --- STREAK LOGIC ---
+  useEffect(() => {
+    const handleStreak = () => {
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+      const lastLogin = localStorage.getItem('fc_last_login');
+      let currentStreak = parseInt(localStorage.getItem('fc_streak') || '0');
+
+      if (lastLogin !== today) {
+        // It's a new day
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+        if (lastLogin === yesterdayStr) {
+          // Continuous streak
+          currentStreak += 1;
+        } else {
+          // Streak broken or first login
+          currentStreak = 1;
+        }
+        
+        // Update storage
+        localStorage.setItem('fc_last_login', today);
+        localStorage.setItem('fc_streak', currentStreak.toString());
+      }
+      
+      setStreak(currentStreak);
+    };
+
+    handleStreak();
+  }, []);
+
+  // --- NOTIFICATIONS LOGIC ---
+  useEffect(() => {
+    const checkExpiryAndNotify = async () => {
+      if (!notificationsEnabled || !('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+
+      // Check for expiring items (<= 3 days)
+      const today = new Date();
+      const expiringItems = ingredients.filter(item => {
+        if (!item.expiryDate) return false;
+        const expiry = new Date(item.expiryDate);
+        const diffTime = expiry.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays <= 3;
+      });
+
+      // Avoid spamming: Check if we already notified today
+      const lastNotifDate = localStorage.getItem('fc_last_notif_date');
+      const todayStr = today.toISOString().split('T')[0];
+
+      if (lastNotifDate !== todayStr && expiringItems.length > 0) {
+        try {
+          // Send Notification
+          new Notification('FrigoChef : Attention au gaspillage !', {
+            body: `Vous avez ${expiringItems.length} aliment(s) qui arrivent bientôt à péremption. Cuisinez-les vite !`,
+            icon: '/icon.png',
+            badge: '/icon.png'
+          });
+          
+          // If streak is at risk (not logged in yet today handled by local notif usually requires background sync, 
+          // here we just do expiry check on app load as a proxy for "active user features")
+          
+          localStorage.setItem('fc_last_notif_date', todayStr);
+        } catch (e) {
+          console.error("Notification failed", e);
+        }
+      }
+    };
+
+    checkExpiryAndNotify();
+  }, [ingredients, notificationsEnabled]);
+
 
   // --- Swipe Logic ---
   const touchStartX = useRef<number | null>(null);
@@ -189,6 +277,9 @@ const App: React.FC = () => {
                  setUserProfile={setUserProfile} 
                  darkMode={darkMode} 
                  setDarkMode={setDarkMode}
+                 streak={streak}
+                 notificationsEnabled={notificationsEnabled}
+                 setNotificationsEnabled={setNotificationsEnabled}
                />
             </div>
           </div>

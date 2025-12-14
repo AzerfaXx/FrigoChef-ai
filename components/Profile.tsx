@@ -1,16 +1,18 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { User, Moon, Sun, Camera, Settings, Shield, ToggleLeft, ToggleRight, Smartphone, Share, X, MoreVertical, Download, HelpCircle } from 'lucide-react';
+import { User, Moon, Sun, Camera, Settings, Shield, ToggleLeft, ToggleRight, Smartphone, Share, X, MoreVertical, Download, HelpCircle, Flame, Bell } from 'lucide-react';
 
 interface Props {
   userProfile: UserProfile;
   setUserProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
   darkMode: boolean;
   setDarkMode: React.Dispatch<React.SetStateAction<boolean>>;
+  streak: number;
+  notificationsEnabled: boolean;
+  setNotificationsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDarkMode }) => {
+const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDarkMode, streak, notificationsEnabled, setNotificationsEnabled }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [newName, setNewName] = useState(userProfile.name);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +105,31 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
         setUserProfile(prev => ({ ...prev, avatar: reader.result as string }));
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const toggleNotifications = async () => {
+    if (!notificationsEnabled) {
+        // Enable logic
+        if (!('Notification' in window)) {
+            alert("Les notifications ne sont pas supportées sur ce navigateur.");
+            return;
+        }
+        
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            setNotificationsEnabled(true);
+            new Notification('Notifications activées !', {
+                body: 'Vous serez alerté si vos produits arrivent à péremption.',
+                icon: '/icon.png'
+            });
+        } else {
+            alert("Vous devez autoriser les notifications dans les paramètres de votre appareil.");
+            setNotificationsEnabled(false);
+        }
+    } else {
+        // Disable logic
+        setNotificationsEnabled(false);
     }
   };
 
@@ -203,7 +230,12 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
                     {userProfile.name}
                 </h1>
              )}
-             <p className="text-slate-400 text-xs font-medium mt-1">Appuyez pour modifier</p>
+             
+             {/* Streak Display */}
+             <div className="flex items-center justify-center gap-1.5 mt-2 bg-orange-50 dark:bg-orange-900/20 px-3 py-1 rounded-full w-max mx-auto border border-orange-100 dark:border-orange-800/50">
+                 <Flame size={16} className="text-orange-500 fill-orange-500 animate-pulse" />
+                 <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{streak} jours</span>
+             </div>
         </div>
       </div>
 
@@ -244,8 +276,8 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
 
          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Paramètres</h2>
          
-         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
-             <div className="p-4 flex items-center gap-4 border-b border-slate-100 dark:border-slate-700/50">
+         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm divide-y divide-slate-100 dark:divide-slate-700/50">
+             <div className="p-4 flex items-center gap-4">
                  <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-500 flex items-center justify-center">
                      <Settings size={20} />
                  </div>
@@ -255,6 +287,20 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
                  </div>
                  <div className="text-slate-300">
                     <span className="text-xs font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 px-2 py-1 rounded">Auto</span>
+                 </div>
+             </div>
+
+             {/* NOTIFICATIONS TOGGLE */}
+             <div className="p-4 flex items-center gap-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors" onClick={toggleNotifications}>
+                 <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-500 flex items-center justify-center">
+                     <Bell size={20} />
+                 </div>
+                 <div className="flex-1">
+                     <p className="font-bold text-slate-700 dark:text-slate-200">Notifications</p>
+                     <p className="text-xs text-slate-400">Rappels de péremption & Streak</p>
+                 </div>
+                 <div className={`${notificationsEnabled ? 'text-emerald-500' : 'text-slate-300'}`}>
+                    {notificationsEnabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
                  </div>
              </div>
 
@@ -274,7 +320,7 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
          
          <div className="text-center mt-6">
              <p className="text-[10px] text-slate-300 dark:text-slate-600">
-                 FrigoChef AI v1.1.0
+                 FrigoChef AI v1.2.0
              </p>
          </div>
       </div>
