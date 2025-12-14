@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Recipe } from '../types';
-import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2, Trash2, AlignLeft } from 'lucide-react';
+import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2, Trash2, AlignLeft, RefreshCcw, XCircle, ArrowLeft } from 'lucide-react';
 import { playTextAsAudio, stopAudio } from '../services/geminiService';
 
 interface Props {
@@ -75,14 +75,27 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [playingSection, setPlayingSection] = useState<'ingredients' | 'steps' | null>(null);
   const [loadingSection, setLoadingSection] = useState<'ingredients' | 'steps' | null>(null);
+  
+  // New State for Trash Mode
+  const [showTrash, setShowTrash] = useState(false);
 
-  const filteredRecipes = savedRecipes.filter(r => 
+  // Filtrage principal
+  const filteredRecipes = savedRecipes.filter(r => {
+    // Si mode corbeille, on ne montre QUE les supprimés
+    if (showTrash) return r.isDeleted;
+    // Sinon on montre ceux qui ne sont PAS supprimés
+    return !r.isDeleted;
+  }).filter(r => 
+    // Filtre de recherche commun
     r.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
     r.ingredients.some(i => i.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   // LOGIQUE DE TRI STRICTE : Épinglé > Favori > Date
   const sortedRecipes = [...filteredRecipes].sort((a, b) => {
+    // Pas de tri spécifique dans la corbeille, juste par date
+    if (showTrash) return b.createdAt - a.createdAt;
+
     // 1. Épinglés en premier
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;
@@ -94,6 +107,8 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
     // 3. Plus récent en dernier (par date de création)
     return b.createdAt - a.createdAt;
   });
+
+  const trashCount = savedRecipes.filter(r => r.isDeleted).length;
 
   const toggleAudio = (e: React.MouseEvent, section: 'ingredients' | 'steps', text: string) => {
       e.stopPropagation();
@@ -126,19 +141,33 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
       setSavedRecipes(prev => prev.map(r => r.id === id ? { ...r, isPinned: !r.isPinned } : r));
   };
 
-  // FONCTION DE SUPPRESSION VERROUILLÉE
-  const deleteRecipe = (e: React.MouseEvent, id: string) => {
-      e.stopPropagation(); // Bloque le clic sur la carte
-      e.preventDefault(); // Bloque tout comportement par défaut
-      
-      if (window.confirm("🗑️ Voulez-vous vraiment supprimer cette recette de votre carnet ?")) {
-          // Si on supprime la recette qu'on est en train de lire, on ferme d'abord la modale
-          if (selectedRecipe?.id === id) {
-              closeModal();
-          }
-          // On filtre la liste pour retirer l'ID concerné
+  // --- LOGIQUE CORBEILLE ---
+
+  // 1. Déplacer vers la corbeille (Soft Delete)
+  const moveToTrash = (e: React.MouseEvent, id: string) => {
+      e.stopPropagation(); 
+      setSavedRecipes(prev => prev.map(r => r.id === id ? { ...r, isDeleted: true } : r));
+      if (selectedRecipe?.id === id) closeModal();
+  };
+
+  // 2. Restaurer (Sortir de la corbeille)
+  const restoreFromTrash = (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      setSavedRecipes(prev => prev.map(r => r.id === id ? { ...r, isDeleted: false } : r));
+  };
+
+  // 3. Supprimer définitivement (Hard Delete)
+  const deletePermanently = (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      if (window.confirm("⚠️ Cette action est irréversible. Supprimer définitivement ?")) {
           setSavedRecipes(prev => prev.filter(r => r.id !== id));
       }
+  };
+
+  const emptyTrash = () => {
+    if (window.confirm("Vider toute la corbeille ?")) {
+        setSavedRecipes(prev => prev.filter(r => !r.isDeleted));
+    }
   };
 
   const handlePlayIngredients = (e: React.MouseEvent, recipe: Recipe) => {
@@ -177,21 +206,33 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                  <h2 className="text-xl font-bold flex-1 text-slate-900 dark:text-white leading-tight pt-1.5">{selectedRecipe.title}</h2>
                  
                  <div className="flex gap-2 shrink-0 mt-1">
-                    <button 
-                        onClick={(e) => toggleFavorite(e, selectedRecipe.id)}
-                        className={`p-2.5 rounded-full transition-colors border ${selectedRecipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-900' : 'text-slate-400 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
-                    >
-                        <Heart size={20} className={selectedRecipe.isFavorite ? "fill-current" : ""} />
-                    </button>
+                    {!showTrash && (
+                        <button 
+                            onClick={(e) => toggleFavorite(e, selectedRecipe.id)}
+                            className={`p-2.5 rounded-full transition-colors border ${selectedRecipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/30 border-rose-200 dark:border-rose-900' : 'text-slate-400 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'}`}
+                        >
+                            <Heart size={20} className={selectedRecipe.isFavorite ? "fill-current" : ""} />
+                        </button>
+                    )}
                     
-                    {/* Bouton Supprimer ROUGE dans la modale */}
-                    <button 
-                        onClick={(e) => deleteRecipe(e, selectedRecipe.id)}
-                        className="p-2.5 rounded-full transition-colors text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 hover:bg-red-100 dark:hover:bg-red-900/40"
-                        title="Supprimer définitivement"
-                    >
-                        <Trash2 size={20} />
-                    </button>
+                    {/* Bouton Supprimer/Restaurer dans la modale selon le contexte */}
+                    {showTrash ? (
+                        <button 
+                            onClick={(e) => restoreFromTrash(e, selectedRecipe.id)}
+                            className="p-2.5 rounded-full transition-colors text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-900"
+                            title="Restaurer"
+                        >
+                            <RefreshCcw size={20} />
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={(e) => moveToTrash(e, selectedRecipe.id)}
+                            className="p-2.5 rounded-full transition-colors text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 hover:bg-red-100 dark:hover:bg-red-900/40"
+                            title="Mettre à la corbeille"
+                        >
+                            <Trash2 size={20} />
+                        </button>
+                    )}
                  </div>
              </div>
              
@@ -288,48 +329,99 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
       )}
 
       {/* --- LIST HEADER --- */}
-      <div className="pt-10 pb-6 px-6 bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 shadow-sm transition-colors duration-300 sticky top-0 z-10">
+      <div className={`pt-10 pb-6 px-6 bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 shadow-sm transition-colors duration-300 sticky top-0 z-10 ${showTrash ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>
          <div className="flex justify-between items-center mb-4">
             <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-2">
-                <BookOpen className="text-emerald-600" />
-                Mon Carnet
+                {showTrash ? (
+                    <>
+                        <button onClick={() => setShowTrash(false)} className="p-1 -ml-1 mr-1 text-slate-400 hover:text-slate-600 rounded-full">
+                            <ArrowLeft size={24} />
+                        </button>
+                        <span className="text-red-600 dark:text-red-400">Corbeille</span>
+                    </>
+                ) : (
+                    <>
+                        <BookOpen className="text-emerald-600" />
+                        Mon Carnet
+                    </>
+                )}
             </h1>
-            <span className="text-xs font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-lg">
-                {savedRecipes.length}
-            </span>
+            
+            {showTrash && trashCount > 0 && (
+                <button 
+                    onClick={emptyTrash}
+                    className="text-xs font-bold text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-200 transition-colors"
+                >
+                    Tout vider
+                </button>
+            )}
+
+            {!showTrash && (
+                <span className="text-xs font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-lg">
+                    {savedRecipes.filter(r => !r.isDeleted).length}
+                </span>
+            )}
          </div>
 
-         <div className="relative">
-             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-             <input 
-                type="text" 
-                placeholder="Rechercher une recette..." 
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-slate-800 dark:text-white placeholder:text-slate-400 transition-all"
-             />
+         <div className="flex gap-2">
+             <div className="relative flex-1">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <input 
+                    type="text" 
+                    placeholder={showTrash ? "Chercher dans la corbeille..." : "Rechercher une recette..."}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-slate-800 dark:text-white placeholder:text-slate-400 transition-all"
+                 />
+             </div>
+             
+             {/* BOUTON CORBEILLE DANS LE HEADER */}
+             <button 
+                onClick={() => { setShowTrash(!showTrash); setSearchTerm(''); }}
+                className={`w-11 h-11 flex items-center justify-center rounded-xl border transition-all active:scale-95 relative ${
+                    showTrash 
+                    ? 'bg-slate-800 text-white border-slate-700' 
+                    : 'bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 hover:border-red-300 hover:text-red-500 dark:hover:text-red-400'
+                }`}
+             >
+                <Trash2 size={20} />
+                {!showTrash && trashCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full shadow-sm">
+                        {trashCount}
+                    </span>
+                )}
+             </button>
          </div>
       </div>
 
       {/* --- RECIPE LIST --- */}
       <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-3 scroll-smooth">
-         {savedRecipes.length === 0 ? (
+         {sortedRecipes.length === 0 ? (
              <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-slate-600 animate-in fade-in">
-                 <div className="w-20 h-20 bg-emerald-50 dark:bg-emerald-900/20 rounded-full flex items-center justify-center mb-4">
-                     <ChefHat size={32} className="text-emerald-300 dark:text-emerald-700" />
+                 <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${showTrash ? 'bg-red-50 dark:bg-red-900/20 text-red-300' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-300'}`}>
+                     {showTrash ? <Trash2 size={32} /> : <ChefHat size={32} />}
                  </div>
-                 <p className="font-semibold text-slate-500 dark:text-slate-400">Carnet vide</p>
-                 <p className="text-xs text-center mt-1 max-w-[200px]">Demandez à l'assistant de sauvegarder vos recettes préférées.</p>
+                 <p className="font-semibold text-slate-500 dark:text-slate-400">{showTrash ? 'Corbeille vide' : 'Carnet vide'}</p>
+                 <p className="text-xs text-center mt-1 max-w-[200px] text-slate-400">
+                    {showTrash 
+                        ? "Les recettes supprimées apparaîtront ici." 
+                        : "Demandez à l'assistant de sauvegarder vos recettes préférées."}
+                 </p>
              </div>
          ) : (
              sortedRecipes.map((recipe) => (
                  <div 
                     key={recipe.id}
                     onClick={() => setSelectedRecipe(recipe)}
-                    className={`group bg-white dark:bg-slate-800 p-4 rounded-2xl border shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800 transition-all active:scale-[0.98] cursor-pointer flex flex-col gap-3 relative overflow-hidden ${recipe.isPinned ? 'border-emerald-500/40 dark:border-emerald-500/40 bg-emerald-50/10 dark:bg-emerald-900/5' : 'border-slate-100 dark:border-slate-700'}`}
+                    className={`group bg-white dark:bg-slate-800 p-4 rounded-2xl border shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800 transition-all active:scale-[0.98] cursor-pointer flex flex-col gap-3 relative overflow-hidden ${
+                        recipe.isPinned && !showTrash 
+                            ? 'border-emerald-500/40 dark:border-emerald-500/40 bg-emerald-50/10 dark:bg-emerald-900/5' 
+                            : 'border-slate-100 dark:border-slate-700'
+                        } ${showTrash ? 'opacity-80 grayscale-[0.3]' : ''}`
+                    }
                  >
-                     {/* Épinglette visuelle */}
-                     {recipe.isPinned && (
+                     {/* Épinglette visuelle (Seulement si pas dans corbeille) */}
+                     {recipe.isPinned && !showTrash && (
                         <div className="absolute top-0 right-0 p-1.5 bg-emerald-500 rounded-bl-xl text-white shadow-sm z-10">
                             <Pin size={12} className="fill-current" />
                         </div>
@@ -338,12 +430,12 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                      <div className="flex justify-between items-start pr-6">
                          {/* Titre */}
                          <div className="flex flex-col">
-                            <h3 className={`font-bold text-base leading-tight line-clamp-2 ${recipe.isPinned ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-800 dark:text-white'}`}>
+                            <h3 className={`font-bold text-base leading-tight line-clamp-2 ${recipe.isPinned && !showTrash ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-800 dark:text-white'}`}>
                                 {recipe.title}
                             </h3>
                             {/* Temps de préparation affiché clairement sous le titre */}
                             <span className="text-xs text-slate-400 dark:text-slate-500 font-bold mt-1 flex items-center gap-1">
-                                 <Clock size={12} className="text-emerald-500" /> 
+                                 <Clock size={12} className={showTrash ? "text-slate-400" : "text-emerald-500"} /> 
                                  {recipe.prepTime || "20 min"}
                             </span>
                          </div>
@@ -369,27 +461,48 @@ const Carnet: React.FC<Props> = ({ savedRecipes, setSavedRecipes }) => {
                             </span>
                         </div>
                         
-                        {/* Actions Rapides - Z-INDEX CORRIGÉ ET STOP PROPAGATION */}
+                        {/* Actions Rapides */}
                         <div className="flex gap-1 relative z-20" onClick={(e) => e.stopPropagation()}>
-                             <button 
-                                onClick={(e) => deleteRecipe(e, recipe.id)}
-                                className="w-8 h-8 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-90"
-                                title="Supprimer"
-                             >
-                                <Trash2 size={16} />
-                             </button>
-                             <button 
-                                onClick={(e) => togglePin(e, recipe.id)}
-                                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${recipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-slate-300 hover:text-emerald-500'}`}
-                             >
-                                <Pin size={16} className={recipe.isPinned ? "fill-current" : ""} />
-                             </button>
-                             <button 
-                                onClick={(e) => toggleFavorite(e, recipe.id)}
-                                className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${recipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/20' : 'text-slate-300 hover:text-rose-500'}`}
-                             >
-                                <Heart size={16} className={recipe.isFavorite ? "fill-current" : ""} />
-                             </button>
+                             {showTrash ? (
+                                 <>
+                                    <button 
+                                        onClick={(e) => deletePermanently(e, recipe.id)}
+                                        className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-90"
+                                        title="Supprimer définitivement"
+                                    >
+                                        <XCircle size={16} />
+                                    </button>
+                                    <button 
+                                        onClick={(e) => restoreFromTrash(e, recipe.id)}
+                                        className="w-8 h-8 flex items-center justify-center rounded-full text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 transition-all active:scale-90"
+                                        title="Restaurer"
+                                    >
+                                        <RefreshCcw size={16} />
+                                    </button>
+                                 </>
+                             ) : (
+                                 <>
+                                    <button 
+                                        onClick={(e) => moveToTrash(e, recipe.id)}
+                                        className="w-8 h-8 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all active:scale-90"
+                                        title="Mettre à la corbeille"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                    <button 
+                                        onClick={(e) => togglePin(e, recipe.id)}
+                                        className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${recipe.isPinned ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'text-slate-300 hover:text-emerald-500'}`}
+                                    >
+                                        <Pin size={16} className={recipe.isPinned ? "fill-current" : ""} />
+                                    </button>
+                                    <button 
+                                        onClick={(e) => toggleFavorite(e, recipe.id)}
+                                        className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-90 ${recipe.isFavorite ? 'text-rose-500 bg-rose-50 dark:bg-rose-900/20' : 'text-slate-300 hover:text-rose-500'}`}
+                                    >
+                                        <Heart size={16} className={recipe.isFavorite ? "fill-current" : ""} />
+                                    </button>
+                                 </>
+                             )}
                         </div>
                      </div>
                  </div>

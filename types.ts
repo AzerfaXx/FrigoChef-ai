@@ -30,6 +30,7 @@ export interface Recipe {
   createdAt: number;
   isFavorite?: boolean;
   isPinned?: boolean;
+  isDeleted?: boolean; // Nouveau champ pour la corbeille
 }
 
 export interface ChatMessage {
