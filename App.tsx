@@ -100,23 +100,24 @@ const App: React.FC = () => {
       let currentStreak = parseInt(localStorage.getItem('fc_streak') || '0');
 
       if (lastLogin !== today) {
-        // It's a new day
+        // It's a new day or first login
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
 
         if (lastLogin === yesterdayStr) {
-          // Continuous streak
+          // User logged in yesterday: Increment streak
           currentStreak += 1;
         } else {
-          // Streak broken or first login
+          // Streak broken (or first time ever): Reset to 1
           currentStreak = 1;
         }
         
         // Update storage
         localStorage.setItem('fc_last_login', today);
         localStorage.setItem('fc_streak', currentStreak.toString());
-      }
+      } 
+      // Else: User already logged in today, keep current streak display
       
       setStreak(currentStreak);
     };
@@ -124,11 +125,18 @@ const App: React.FC = () => {
     handleStreak();
   }, []);
 
-  // --- NOTIFICATIONS LOGIC ---
+  // --- NOTIFICATIONS LOGIC (Expiry Check) ---
   useEffect(() => {
     const checkExpiryAndNotify = async () => {
+      // Only proceed if user enabled notifications and browser supports it
       if (!notificationsEnabled || !('Notification' in window)) return;
       if (Notification.permission !== 'granted') return;
+
+      // Avoid spamming: Check if we already notified TODAY
+      const todayStr = new Date().toISOString().split('T')[0];
+      const lastNotifDate = localStorage.getItem('fc_last_notif_date');
+
+      if (lastNotifDate === todayStr) return;
 
       // Check for expiring items (<= 3 days)
       const today = new Date();
@@ -140,31 +148,28 @@ const App: React.FC = () => {
         return diffDays >= 0 && diffDays <= 3;
       });
 
-      // Avoid spamming: Check if we already notified today
-      const lastNotifDate = localStorage.getItem('fc_last_notif_date');
-      const todayStr = today.toISOString().split('T')[0];
-
-      if (lastNotifDate !== todayStr && expiringItems.length > 0) {
+      if (expiringItems.length > 0) {
         try {
           // Send Notification
-          new Notification('FrigoChef : Attention au gaspillage !', {
-            body: `Vous avez ${expiringItems.length} aliment(s) qui arrivent bientôt à péremption. Cuisinez-les vite !`,
+          new Notification('FrigoChef : Anti-Gaspillage 🍎', {
+            body: `Attention chef ! Vous avez ${expiringItems.length} aliment(s) qui périment bientôt. Une petite recette ?`,
             icon: '/icon.png',
-            badge: '/icon.png'
+            tag: 'expiry-alert'
           });
-          
-          // If streak is at risk (not logged in yet today handled by local notif usually requires background sync, 
-          // here we just do expiry check on app load as a proxy for "active user features")
           
           localStorage.setItem('fc_last_notif_date', todayStr);
         } catch (e) {
           console.error("Notification failed", e);
         }
+      } else if (streak > 0) {
+         // Optionnel: Notification de streak si rien ne périme
+         // new Notification('FrigoChef 🔥', { body: `Bravo ! ${streak} jours de suite. Continuez comme ça !`, icon: '/icon.png' });
+         // localStorage.setItem('fc_last_notif_date', todayStr);
       }
     };
 
     checkExpiryAndNotify();
-  }, [ingredients, notificationsEnabled]);
+  }, [ingredients, notificationsEnabled, streak]);
 
 
   // --- Swipe Logic ---

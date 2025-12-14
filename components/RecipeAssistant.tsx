@@ -626,46 +626,46 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                     {isRecording ? <StopCircle size={22} /> : isConnectingLive ? <Loader2 size={22} className="animate-spin" /> : <Mic size={22} />}
                 </button>
 
-                <div className={`flex-1 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-all ${isRecording ? 'border-rose-500 bg-rose-50/10' : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/10'}`}>
-                    {isRecording ? (
-                        <div className="flex-1 flex items-center gap-2 h-[52px] px-4">
-                             <div className="relative flex h-3 w-3 shrink-0">
+                <div className={`flex-1 min-w-0 flex items-center bg-white dark:bg-slate-800 rounded-[1.5rem] border transition-colors duration-200 ${
+                    isRecording 
+                    ? 'border-rose-500' 
+                    : 'border-slate-200 dark:border-slate-700 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500/20'
+                }`}>
+                    {/* Recording Indicator inside Input Area */}
+                    {isRecording && (
+                        <div className="pl-3.5 flex items-center justify-center shrink-0">
+                             <div className="relative flex h-2.5 w-2.5">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
                             </div>
-                            <input 
-                                value={inputValue}
-                                readOnly
-                                className="flex-1 bg-transparent border-none outline-none text-slate-700 dark:text-slate-200 font-medium truncate"
-                                placeholder="Je vous écoute..."
-                            />
                         </div>
-                    ) : (
-                        <textarea
-                            ref={textareaRef}
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSend();
-                                }
-                            }}
-                            placeholder={isConnectingLive ? "Connexion..." : "Demandez une recette..."}
-                            disabled={isConnectingLive}
-                            rows={1}
-                            className={`flex-1 p-3.5 max-h-32 min-h-[52px] bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium resize-none transition-all ${isConnectingLive ? 'opacity-50' : ''}`}
-                        />
                     )}
+
+                    <textarea
+                        ref={textareaRef}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSend();
+                            }
+                        }}
+                        placeholder={isRecording ? "Je vous écoute..." : (isConnectingLive ? "Connexion..." : "Demandez une recette...")}
+                        disabled={isConnectingLive}
+                        readOnly={isRecording} // Prevent keyboard flicker on mobile
+                        rows={1}
+                        className={`flex-1 p-3.5 max-h-32 min-h-[52px] bg-transparent outline-none text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium resize-none transition-all ${isConnectingLive ? 'opacity-50' : ''}`}
+                    />
                     
                     {inputValue.trim() && !isRecording && (
-                    <button 
-                        type="button"
-                        onClick={() => setInputValue('')}
-                        className="p-2 mr-1 text-slate-300 hover:text-slate-500 cursor-pointer"
-                    >
-                        <X size={16} />
-                    </button>
+                        <button 
+                            type="button"
+                            onClick={() => setInputValue('')}
+                            className="p-2 mr-1 text-slate-300 hover:text-slate-500 cursor-pointer shrink-0"
+                        >
+                            <X size={16} />
+                        </button>
                     )}
                 </div>
 

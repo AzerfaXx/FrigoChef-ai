@@ -89,8 +89,22 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
+          let refreshing = false;
+          // Listen for controller change (meaning new SW took over) to reload page
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (!refreshing) {
+              window.location.reload();
+              refreshing = true;
+            }
+          });
+
           navigator.serviceWorker.register('/sw.js').then(registration => {
             console.log('SW registered: ', registration);
+            
+            // Check for updates periodically (optional, good for long lived tabs)
+            setInterval(() => {
+                registration.update();
+            }, 60 * 60 * 1000); // Check every hour
           }).catch(registrationError => {
             console.log('SW registration failed: ', registrationError);
           });

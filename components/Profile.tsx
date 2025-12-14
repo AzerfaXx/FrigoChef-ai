@@ -112,19 +112,19 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
     if (!notificationsEnabled) {
         // Enable logic
         if (!('Notification' in window)) {
-            alert("Les notifications ne sont pas supportées sur ce navigateur.");
+            alert("Les notifications ne sont pas supportées par ce navigateur.");
             return;
         }
         
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
             setNotificationsEnabled(true);
-            new Notification('Notifications activées !', {
+            new Notification('Notifications activées ! 🔔', {
                 body: 'Vous serez alerté si vos produits arrivent à péremption.',
                 icon: '/icon.png'
             });
         } else {
-            alert("Vous devez autoriser les notifications dans les paramètres de votre appareil.");
+            alert("Veuillez autoriser les notifications dans les paramètres de votre appareil.");
             setNotificationsEnabled(false);
         }
     } else {
@@ -232,9 +232,11 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
              )}
              
              {/* Streak Display */}
-             <div className="flex items-center justify-center gap-1.5 mt-2 bg-orange-50 dark:bg-orange-900/20 px-3 py-1 rounded-full w-max mx-auto border border-orange-100 dark:border-orange-800/50">
-                 <Flame size={16} className="text-orange-500 fill-orange-500 animate-pulse" />
-                 <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{streak} jours</span>
+             <div className="flex items-center justify-center gap-2 mt-3 animate-in fade-in zoom-in duration-500">
+                 <div className="bg-orange-50 dark:bg-orange-900/20 px-4 py-1.5 rounded-full flex items-center gap-2 border border-orange-100 dark:border-orange-800/50 shadow-sm">
+                    <Flame size={18} className="text-orange-500 fill-orange-500 animate-[pulse_2s_infinite]" />
+                    <span className="text-sm font-bold text-orange-600 dark:text-orange-400">{streak} jours de suite</span>
+                 </div>
              </div>
         </div>
       </div>
@@ -320,7 +322,7 @@ const Profile: React.FC<Props> = ({ userProfile, setUserProfile, darkMode, setDa
          
          <div className="text-center mt-6">
              <p className="text-[10px] text-slate-300 dark:text-slate-600">
-                 FrigoChef AI v1.2.0
+                 FrigoChef AI v1.3.0
              </p>
          </div>
       </div>

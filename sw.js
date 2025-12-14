@@ -1,6 +1,6 @@
 
 // On change le nom de version pour forcer une réinstallation immédiate et purger les caches corrompus
-const CACHE_NAME = "frigochef-v16-force-apk";
+const CACHE_NAME = "frigochef-v17-streak-notif";
 
 const ASSETS_TO_CACHE = [
   "/",
