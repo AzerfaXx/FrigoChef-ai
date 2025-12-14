@@ -13,7 +13,7 @@ const getAiClient = () => {
 
 const addToInventoryTool: FunctionDeclaration = {
   name: 'ajouterAuStock',
-  description: 'Ajouter un ou plusieurs ingrédients à l\'inventaire du frigo (stock actuel).',
+  description: 'Ajouter un ou plusieurs ingrédients à l\'inventaire du frigo (stock actuel). Utiliser quand on parle de "stock", "frigo" ou "j\'ai acheté".',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -79,7 +79,7 @@ const updateInventoryTool: FunctionDeclaration = {
 
 const addToShoppingListTool: FunctionDeclaration = {
   name: 'ajouterAuPanier',
-  description: 'Ajouter des articles à la LISTE DE COURSES (ce qu\'il faut acheter).',
+  description: 'Ajouter des articles à la LISTE DE COURSES. Utiliser IMPÉRATIVEMENT quand l\'utilisateur dit "liste", "courses" ou "il faut acheter".',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -228,10 +228,14 @@ export const chatWithChefStream = async function* (
     [COURSES] :
     ${shoppingContext}
     
-    TES DIRECTIVES :
+    TES RÈGLES D'OR POUR LES OUTILS (A SUIVRE STRICTEMENT) :
+    1. **MOT CLÉ "LISTE" ou "COURSES"** : Si l'utilisateur dit "ajoute à la liste", "liste des courses", "il faut acheter", tu DOIS utiliser l'outil \`ajouterAuPanier\`.
+    2. **MOT CLÉ "STOCK" ou "FRIGO"** : Si l'utilisateur dit "ajoute au stock", "j'ai mis dans le frigo", "ajoute...", tu DOIS utiliser l'outil \`ajouterAuStock\`.
+    
+    TES DIRECTIVES DE CONVERSATION :
     1. **Personalité** : Parle comme un humain passionné. Pas de phrases robotiques comme "Voici la réponse". Dis plutôt "Super idée ! On peut faire ça..." ou "Alors, avec ce stock, je te propose...".
-    2. **Gestion du STOCK** : Utilise en priorité ce qu'il y a dans le frigo. Si l'utilisateur ajoute/retire des choses, utilise les outils silencieusement et confirme brièvement ("C'est noté !", "Ajouté !").
-    3. **Gestion des COURSES** : Si l'utilisateur veut acheter quelque chose, utilise 'ajouterAuPanier'.
+    2. **Gestion du STOCK** : Utilise en priorité ce qu'il y a dans le frigo pour cuisiner.
+    3. **Confirmation** : Quand tu utilises un outil, sois bref ("C'est noté !", "Ajouté à la liste !", "Stock mis à jour !"). Pas besoin de répéter toute la liste.
     4. **Sauvegarde** : Propose de sauvegarder les recettes qui semblent plaire.
     
     FORMAT :
