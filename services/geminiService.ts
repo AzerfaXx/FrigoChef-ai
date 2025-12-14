@@ -13,7 +13,7 @@ const getAiClient = () => {
 
 const addToInventoryTool: FunctionDeclaration = {
   name: 'ajouterAuStock',
-  description: 'Ajouter des ingrédients au STOCK (Frigo/Placard). Utiliser quand l\'utilisateur dit "J\'ai acheté", "J\'ai", "Il y a", "Mets au frigo".',
+  description: 'Ajouter des ingrédients au STOCK (Frigo/Placard). Utiliser si l\'utilisateur dit "J\'ai", "Il y a", OU si l\'utilisateur dit "Ajoute..." AVEC une date/péremption.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -80,7 +80,7 @@ const updateInventoryTool: FunctionDeclaration = {
 
 const addToShoppingListTool: FunctionDeclaration = {
   name: 'ajouterAuPanier',
-  description: 'Ajouter des articles à la LISTE DE COURSES. Utiliser quand l\'utilisateur dit "Ajoute", "Il faut", "Achète", "Besoin de".',
+  description: 'Ajouter des articles à la LISTE DE COURSES.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -217,24 +217,26 @@ export const chatWithChefStream = async function* (
     
     [DATE ACTUELLE] : ${fullDate} (ISO: ${isoDate}).
     C'est ta référence ABSOLUE.
-    - Si l'utilisateur dit "Périme dans 10 jours" : Tu DOIS calculer ${isoDate} + 10 jours et fournir la date ISO.
-    - Si l'utilisateur dit "Pour mardi prochain" : Calcule la date exacte.
+    - Pour "périme dans 10 jours", le calcul est : ${isoDate} + 10 jours.
+    - Pour "périme mardi prochain", trouve la date exacte du prochain mardi.
 
-    [RÈGLES D'INTENTION STRICTES] :
-    1. **AJOUTER À LA LISTE (ajouterAuPanier)** :
-       - Si la phrase commence par "Ajoute", "Il faut", "Achète", "Besoin de".
-       - Ex: "Ajoute des tomates" -> Liste de courses.
+    [RÈGLES D'INTENTION CRITIQUES] :
+    
+    1. **AJOUTER AU STOCK (Inventaire)** :
+       - Si l'utilisateur dit : "J'ai acheté...", "J'ai...", "Mets au frigo...".
+       - OU SI l'utilisateur dit "Ajoute..." ET mentionne une DATE ou "PÉRIMER".
+         > Ex: "Ajoute des yaourts qui périment le 12" -> STOCK (car date présente).
+         > Ex: "Ajoute du lait péremption dans 3 jours" -> STOCK.
 
-    2. **AJOUTER AU STOCK (ajouterAuStock)** :
-       - Si la phrase indique une possession : "J'ai acheté", "J'ai", "Il y a", "Mets au frigo".
-       - Ex: "J'ai acheté un steak" -> Stock.
-       - Ex: "Ajoute ce steak au stock" -> Stock.
+    2. **AJOUTER À LA LISTE (Courses)** :
+       - Si l'utilisateur dit : "Ajoute...", "Il faut...", "Besoin de...".
+       - SANS mention de date ou péremption.
+         > Ex: "Ajoute des yaourts" -> LISTE.
+         > Ex: "Il faut du lait" -> LISTE.
 
     [INTELLIGENCE PRODUIT] :
     - **Catégorie** : Déduis-la TOUJOURS. 
-      (Steak -> meat, Pomme -> produce, Lait -> drinks/produce, Pâtes -> pantry).
     - **Quantité** : Si l'utilisateur ne dit pas "combien", mets "1" par défaut.
-    - **Date de péremption** : Si l'utilisateur la mentionne ("périme le...", "jusqu'au...", "dans X jours"), tu DOIS la calculer et la passer à l'outil.
 
     [CONTEXTE STOCK] :
     ${inventoryContext}
@@ -242,7 +244,7 @@ export const chatWithChefStream = async function* (
     [CONTEXTE LISTE] :
     ${shoppingContext}
 
-    Sois concis. Confirme les actions simplement ("C'est noté", "Ajouté au stock").
+    Sois concis.
   `;
 
   const chat = ai.chats.create({
@@ -358,22 +360,24 @@ export const startLiveTranscription = async (
             responseModalities: [Modality.AUDIO], 
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
             systemInstruction: `
-            ROLE: Transcription culinaire EXPERTE.
+            ROLE: Transcription vocale EXPERTE pour cuisine.
             
-            OBJECTIF : Transcrire fidèlement en corrigeant les homonymes.
+            [RÈGLES PHONÉTIQUES ABSOLUES] :
+            Tu dois CORRIGER tout ce qui ressemble à des aliments mais qui est mal prononcé ou mal compris.
+            - "Style" / "Stick" -> **STEAK**
+            - "Pattes" / "Pote" -> **PÂTES** ou **PATATES**
+            - "Laid" / "Les" -> **LAIT**
+            - "Celle" -> **SEL**
+            - "Peau" / "Pot" -> **POT** ou **EAU** (selon contexte)
+            - "Cour gilet" -> **COURGETTE**
+            - "A mande" -> **AMANDE**
 
-            RÈGLES PHONÉTIQUES PRIORITAIRES (BIAIS CULINAIRE) :
-            1. SON /stɛk/ -> Écris TOUJOURS "Steak" (JAMAIS "style", "stick", "stique").
-            2. SON /pat/ -> Écris "Pâtes" (JAMAIS "pattes").
-            3. SON /lɛ/ -> Écris "Lait" (JAMAIS "les", "laid").
-            4. SON /sɛl/ -> Écris "Sel" (JAMAIS "celle").
-            5. SON /amɑ̃d/ -> Écris "Amande".
-            6. SON /bazilik/ -> Écris "Basilic".
-
-            RÈGLES DE FORMATAGE :
-            - Chiffres en numérique : "3 pommes" (pas "trois").
-            - Dates claires : "le 15", "dans 10 jours".
-            - Ignore les hésitations.
+            [FORMATAGE INTELLIGENT] :
+            - Si l'utilisateur dit "périme le douze", écris "périme le 12".
+            - Si l'utilisateur dit "trois oeufs", écris "3 oeufs".
+            - Si l'utilisateur dit "ajoute des...", écris "Ajoute des...".
+            
+            Ton seul but est de fournir une transcription textuelle PARFAITE pour que l'IA de gestion puisse comprendre l'intention (Stock vs Liste) juste après.
             `,
             inputAudioTranscription: {}, 
         }
