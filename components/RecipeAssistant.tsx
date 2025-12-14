@@ -53,6 +53,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
   // Dictation State (Live API)
   const [isRecording, setIsRecording] = useState(false);
   const [isConnectingLive, setIsConnectingLive] = useState(false);
+  const [micVolume, setMicVolume] = useState(0); // For Visual Feedback
   const stopLiveSessionRef = useRef<(() => void) | null>(null);
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -149,7 +150,13 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                 console.error("Transcription error", err);
                 setIsRecording(false);
                 setIsConnectingLive(false);
+                setMicVolume(0);
                 alert("Erreur de connexion audio. Réessayez.");
+            },
+            (volume) => {
+                // Update volume state for visual feedback
+                // Normalize slightly for visual effect (0 to 1)
+                setMicVolume(Math.min(volume * 5, 1));
             }
         );
         stopLiveSessionRef.current = cleanup;
@@ -159,7 +166,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
         console.error("Error accessing microphone or API", err);
         setIsRecording(false);
         setIsConnectingLive(false);
-        alert("Impossible d'accéder au micro ou à l'API.");
+        alert("Impossible d'accéder au micro. Vérifiez les permissions.");
     }
   };
 
@@ -170,6 +177,7 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       }
       setIsRecording(false);
       setIsConnectingLive(false);
+      setMicVolume(0);
   };
 
   const toggleRecording = () => {
@@ -621,7 +629,12 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
                 <button
                     type="button"
                     onClick={toggleRecording}
-                    className={`p-3.5 rounded-full transition-all active:scale-95 flex-shrink-0 flex items-center justify-center shadow-sm cursor-pointer ${
+                    // Visual Feedback: Pulsing scale based on volume
+                    style={{ 
+                        transform: isRecording ? `scale(${1 + micVolume * 0.4})` : 'scale(1)',
+                        boxShadow: isRecording ? `0 0 ${10 + micVolume * 20}px rgba(244, 63, 94, 0.5)` : undefined
+                    }}
+                    className={`p-3.5 rounded-full transition-all active:scale-95 flex-shrink-0 flex items-center justify-center shadow-sm cursor-pointer duration-75 ${
                         isRecording 
                         ? 'bg-rose-500 text-white' 
                         : isConnectingLive

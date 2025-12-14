@@ -3,7 +3,6 @@ import { Ingredient, ShoppingItem } from "../types";
 
 // Initialize the client
 const getAiClient = () => {
-  // Use environment variable if available, otherwise use the provided fallback key for mobile/deployment
   const apiKey = process.env.API_KEY || "AIzaSyDpF6Q7i2BQbC1CovL01il0cZNf6ooaWiA";
   if (!apiKey) throw new Error("API_KEY not found in environment");
   return new GoogleGenAI({ apiKey });
@@ -114,7 +113,7 @@ const toolsConfig = [
   { functionDeclarations: [addToInventoryTool, removeFromInventoryTool, updateInventoryTool, addToShoppingListTool, saveRecipeTool] }
 ];
 
-// --- Shared Audio Helpers ---
+// --- Helpers ---
 
 export const base64ToBytes = (base64: string): Uint8Array => {
   const binaryString = atob(base64);
@@ -158,36 +157,23 @@ function encode(bytes: Uint8Array) {
     return btoa(binary);
 }
 
-// --- AUDIO DOWNSAMPLING HELPER (Critical for Mobile Web) ---
-// Mobile mics run at 44.1/48kHz. Gemini Live needs 16kHz.
-// Sending 48kHz as 16kHz makes audio sound like chipmunks and breaks STT.
-function downsampleBuffer(buffer: Float32Array, inputSampleRate: number, outputSampleRate: number): Int16Array {
-    if (inputSampleRate === outputSampleRate) {
-        const result = new Int16Array(buffer.length);
-        for (let i = 0; i < buffer.length; i++) {
-            result[i] = buffer[i] * 32768;
-        }
-        return result;
+// --- AUDIO DOWNSAMPLING HELPER ---
+// Simplified "Decimation" strategy for mobile performance.
+// Converts arbitrary input rate (44.1k/48k) to exactly 16000Hz.
+function downsampleTo16k(input: Float32Array, sampleRate: number): Int16Array {
+    if (sampleRate === 16000) {
+        const res = new Int16Array(input.length);
+        for (let i=0; i<input.length; i++) res[i] = input[i] * 32767;
+        return res;
     }
-
-    const sampleRateRatio = inputSampleRate / outputSampleRate;
-    const newLength = Math.round(buffer.length / sampleRateRatio);
+    const ratio = sampleRate / 16000;
+    const newLength = Math.floor(input.length / ratio);
     const result = new Int16Array(newLength);
-    let offsetResult = 0;
-    let offsetBuffer = 0;
-
-    while (offsetResult < result.length) {
-        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
-        // Simple averaging for downsampling
-        let accum = 0, count = 0;
-        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-            accum += buffer[i];
-            count++;
-        }
-        
-        result[offsetResult] = Math.min(1, Math.max(-1, accum / count)) * 32768;
-        offsetResult++;
-        offsetBuffer = nextOffsetBuffer;
+    for (let i = 0; i < newLength; i++) {
+        const offset = Math.floor(i * ratio);
+        // Clamp values to prevent distortion
+        const val = Math.max(-1, Math.min(1, input[offset]));
+        result[i] = val * 32767;
     }
     return result;
 }
@@ -238,41 +224,20 @@ export const chatWithChefStream = async function* (
     : "Vide.";
   
   const today = new Date();
-  const dayName = today.toLocaleDateString('fr-FR', { weekday: 'long' });
-  const dayNum = today.getDate();
-  const month = today.toLocaleDateString('fr-FR', { month: 'long' });
-  const year = today.getFullYear();
-  const fullDate = `${dayName} ${dayNum} ${month} ${year}`;
+  const fullDate = `${today.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`;
   const isoDate = today.toISOString().split('T')[0];
 
   const systemInstruction = `
-    Tu es FrigoChef, l'assistant culinaire INTELLIGENT.
+    Tu es FrigoChef. Date: ${fullDate}.
     
-    [DATE ACTUELLE] : ${fullDate} (ISO: ${isoDate}).
+    INTENTION:
+    1. STOCK (Inventaire) : Si l'utilisateur dit "J'ai...", "Ajoute... [DATE]", "Péremption".
+    2. COURSES (Liste) : Si l'utilisateur dit "Il faut...", "Ajoute... [SANS DATE]", "Acheter".
+
+    CONTEXTE STOCK : ${inventoryContext}
+    CONTEXTE LISTE : ${shoppingContext}
     
-    [RÈGLE D'OR - INTENTION UTILISATEUR] :
-    Tu dois absolument distinguer entre STOCK et LISTE DE COURSES.
-
-    1. **AJOUTER AU STOCK (Inventaire)** :
-       - Déclencheur 1 : L'utilisateur dit "J'ai...", "Il y a...", "J'ai acheté...".
-       - Déclencheur 2 (LE PLUS IMPORTANT) : L'utilisateur dit "Ajoute..." ET mentionne une DATE ou "PÉRIMER".
-         > Ex: "Ajoute des yaourts qui périment demain" -> STOCK (car date précise).
-         > Ex: "Ajoute du lait péremption dans 3 jours" -> STOCK.
-
-    2. **AJOUTER À LA LISTE (Courses)** :
-       - Déclencheur : L'utilisateur dit "Ajoute...", "Il faut...", "Besoin de..." SANS mention de date.
-         > Ex: "Ajoute des yaourts" -> LISTE DE COURSES (car pas de date).
-         > Ex: "Il faut du lait" -> LISTE DE COURSES.
-
-    [INTELLIGENCE PRODUIT] :
-    - Catégorie : Déduis-la TOUJOURS (viande, produit frais, épicerie...).
-    - Quantité : Mets "1" par défaut si non précisé.
-    - Dates : Calcule toujours la date ISO précise (ex: "dans 3 jours" = ${isoDate} + 3 jours).
-
-    [CONTEXTE STOCK] : ${inventoryContext}
-    [CONTEXTE LISTE] : ${shoppingContext}
-
-    Sois concis.
+    Calcule toujours les dates précises (ISO ${isoDate}).
   `;
 
   const chat = ai.chats.create({
@@ -294,14 +259,12 @@ export const chatWithChefStream = async function* (
 
 export const generateSpeech = async (text: string): Promise<string | null> => {
   const ai = getAiClient();
+  // Cleanup text to avoid TTS reading markdown symbols
   const cleanText = text
     .replace(/\*\*(.*?)\*\*/g, "$1") 
     .replace(/__(.*?)__/g, "$1") 
     .replace(/#+\s/g, "") 
     .replace(/^\s*[-*]\s+/gm, "") 
-    .replace(/`{1,3}(.*?)`{1,3}/g, "$1") 
-    .replace(/[*_#`~]/g, "") 
-    .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
     .trim();
 
   const hasContent = /[a-zA-Z0-9éèàùçêîôûëïüÿñæœÉÈÀÙÇÊÎÔÛËÏÜŸÑÆŒ]/.test(cleanText);
@@ -358,9 +321,8 @@ export const stopAudio = () => {
     if (globalSource) { try { globalSource.stop(); } catch (e) {} globalSource = null; }
 };
 
-// --- 3. Live Transcription (With Downsampling & Anti-GC) ---
+// --- 3. Live Transcription (MOBILE OPTIMIZED) ---
 
-// Extend window to prevent GC of ScriptProcessor
 declare global {
   interface Window {
     __liveScriptProcessor: ScriptProcessorNode | null;
@@ -369,42 +331,53 @@ declare global {
 
 export const startLiveTranscription = async (
     onTranscriptionUpdate: (text: string) => void,
-    onError: (err: any) => void
+    onError: (err: any) => void,
+    onVolumeChange?: (volume: number) => void // New callback for visual feedback
 ) => {
     const ai = getAiClient();
+    const TARGET_SAMPLE_RATE = 16000;
     
+    // 1. Initialize AudioContext immediately (User Interaction Context)
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     const audioContext = new AudioContextClass();
     
-    // CRITICAL: Force Resume for Mobile Safari/Chrome if created in suspended state
     if (audioContext.state === 'suspended') {
         try { await audioContext.resume(); } catch (e) { console.error("Could not resume audio context", e); }
     }
     
-    // Request microphone access
-    const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-            channelCount: 1, 
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-        }
-    });
-    
-    // Double check state after stream acquisition
-    if (audioContext.state === 'suspended') {
-        try { await audioContext.resume(); } catch (e) { console.error("Could not resume audio context after stream", e); }
+    // 2. Get Media Stream
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: { 
+                channelCount: 1, 
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+    } catch (e) {
+        onError(e);
+        return () => {};
     }
     
+    // 3. Setup Audio Graph
     const source = audioContext.createMediaStreamSource(stream);
-    // Lower buffer size (2048) for lower latency on transcription
-    const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
     
-    // CRITICAL: Assign to global window to prevent Garbage Collection on mobile
+    // Add GainNode to boost volume on mobile devices
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 1.5; // 150% volume boost
+    
+    // Use larger buffer (4096) for mobile stability
+    const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
     window.__liveScriptProcessor = scriptProcessor;
 
-    const TARGET_SAMPLE_RATE = 16000;
-    
+    // Connect graph: Source -> Gain -> Processor -> Dest
+    source.connect(gainNode);
+    gainNode.connect(scriptProcessor);
+    scriptProcessor.connect(audioContext.destination);
+
+    // 4. Connect to Gemini Live
     const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         callbacks: {
@@ -421,33 +394,26 @@ export const startLiveTranscription = async (
         config: {
             responseModalities: [Modality.AUDIO], 
             generationConfig: {
-                temperature: 0, // IMPORTANT: 0 temperature forces deterministic output (correct spelling)
+                temperature: 0, 
             },
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-            // CRITICAL: System Prompt for Phonetic Correction
             systemInstruction: `
-            CONTEXTE : Transcription Speech-to-Text (STT) pour une application de CUISINE.
+            CONTEXTE : Transcription Speech-to-Text CULINAIRE.
             
-            TA TÂCHE UNIQUE :
-            Tu es un transcripteur professionnel. Tu dois écouter le flux audio et écrire EXACTEMENT ce qui est dit, en appliquant un filtre "CULINAIRE" strict.
+            TA TÂCHE :
+            Écoute le flux audio et transcris EXACTEMENT ce qui est dit.
             
-            RÈGLES D'OR DE TRANSCRIPTION (OBLIGATOIRES) :
-            1. NE JAMAIS INTERPRÉTER ou répondre. Écris seulement ce que tu entends.
-            2. IGNORE les hésitations ("euh", "bah", "hum").
-            3. Si tu entends un mot qui ressemble phonétiquement à un aliment, ÉCRIS L'ALIMENT.
+            DICTIONNAIRE OBLIGATOIRE :
+            - /pat/ -> "Pâtes"
+            - /stik/ -> "Steak"
+            - /patat/ -> "Patates"
+            - /lɛ/ -> "Lait"
+            - /sɛl/ -> "Sel"
             
-            DICTIONNAIRE DE CORRECTION PHONÉTIQUE (PRIORITÉ ABSOLUE) :
-            - Si tu entends /pat/ ou "pattes" -> ÉCRIS "Pâtes".
-            - Si tu entends /stik/, "style" ou "stick" -> ÉCRIS "Steak".
-            - Si tu entends /patat/ ou "pattes hat" -> ÉCRIS "Patates".
-            - Si tu entends /lɛ/ ou "les" -> ÉCRIS "Lait".
-            - Si tu entends /sɛl/ ou "celle" -> ÉCRIS "Sel".
-            - Si tu entends "thon" ou "temps" -> ÉCRIS "Thon".
-            - Si tu entends "courgette" -> ÉCRIS "Courgettes".
-            
-            FORMATAGE :
-            - Mets une majuscule en début de phrase.
-            - Utilise les chiffres pour les quantités (ex: "3 oeufs", "500g").
+            RÈGLES :
+            - Pas d'interprétation.
+            - Ignore les "euh".
+            - Transcris en français correct.
             `,
             inputAudioTranscription: {}, 
         }
@@ -455,8 +421,19 @@ export const startLiveTranscription = async (
 
     scriptProcessor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
-        // CRITICAL: Downsample from device rate (e.g. 48000) to API rate (16000)
-        const downsampledInt16 = downsampleBuffer(inputData, audioContext.sampleRate, TARGET_SAMPLE_RATE);
+        
+        // Volume Calculation (RMS) for Visual Feedback
+        if (onVolumeChange) {
+            let sum = 0;
+            // optimize loop: only check every 4th sample for speed
+            for (let i = 0; i < inputData.length; i += 4) {
+                sum += inputData[i] * inputData[i];
+            }
+            const rms = Math.sqrt(sum / (inputData.length / 4));
+            onVolumeChange(rms);
+        }
+
+        const downsampledInt16 = downsampleTo16k(inputData, audioContext.sampleRate);
         const base64Data = encode(new Uint8Array(downsampledInt16.buffer));
 
         sessionPromise.then((session) => {
@@ -464,13 +441,11 @@ export const startLiveTranscription = async (
         });
     };
 
-    source.connect(scriptProcessor);
-    scriptProcessor.connect(audioContext.destination);
-
     return () => {
         // Cleanup
         window.__liveScriptProcessor = null;
         scriptProcessor.disconnect();
+        gainNode.disconnect();
         source.disconnect();
         stream.getTracks().forEach(t => t.stop());
         audioContext.close();
