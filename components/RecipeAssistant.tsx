@@ -189,9 +189,9 @@ const RecipeAssistant: React.FC<Props> = ({ ingredients, setIngredients, setSave
       const newItems = (args.items || []).map((item: any) => ({
         id: Date.now().toString() + Math.random(),
         name: item.name,
-        quantity: item.quantity,
-        category: item.category || 'other',
-        expiryDate: null
+        quantity: item.quantity || '1', // Default quantity if missing
+        category: item.category || 'other', // AI should infer this
+        expiryDate: item.expiryDate || null // AI handles date calculation
       }));
       setIngredients(prev => [...prev, ...newItems]);
       return newItems; 
