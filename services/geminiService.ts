@@ -1,13 +1,8 @@
-import { FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, Type } from "@google/genai";
+import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { Ingredient, ShoppingItem } from "../types";
 
-// Initialize the client
-const getAiClient = () => {
-  // Direct integration of the key. 
-  // We removed LocalStorage check to ensure the valid key is used even if a user had a bad key saved before.
-  const apiKey = process.env.API_KEY || "AIzaSyDpF6Q7i2BQbC1CovL01il0cZNf6ooaWiA";
-  return new GoogleGenAI({ apiKey });
-};
+// Initialize the client strictly according to guidelines
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- Tool Definitions ---
 
@@ -158,7 +153,6 @@ function encode(bytes: Uint8Array) {
     return btoa(binary);
 }
 
-// --- AUDIO DOWNSAMPLING HELPER ---
 function downsampleTo16k(input: Float32Array, sampleRate: number): Int16Array {
     if (sampleRate === 16000) {
         const res = new Int16Array(input.length);
@@ -182,7 +176,6 @@ export const generateRecipePlan = async (
   ingredients: Ingredient[],
   userRequest: string
 ): Promise<string> => {
-  const ai = getAiClient();
   const inventoryList = ingredients.length > 0 
     ? ingredients.map((i) => `- ${i.name} (${i.quantity}), expire le: ${i.expiryDate || 'N/A'}`).join("\n")
     : "Le frigo est vide.";
@@ -195,7 +188,7 @@ export const generateRecipePlan = async (
   `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash", // Utilisation de 2.0-flash (stable)
+    model: "gemini-3-flash-preview",
     contents: prompt,
   });
 
@@ -209,8 +202,7 @@ export const chatWithChefStream = async function* (
   shoppingList: ShoppingItem[],
   useSearch: boolean = false
 ) {
-  const ai = getAiClient();
-  const model = "gemini-2.0-flash"; // Utilisation de 2.0-flash (stable)
+  const model = "gemini-3-flash-preview";
   const activeTools = useSearch ? [...toolsConfig, { googleSearch: {} }] : toolsConfig;
   
   const inventoryContext = ingredients.length > 0
@@ -228,37 +220,14 @@ export const chatWithChefStream = async function* (
   const systemInstruction = `
     Tu es FrigoChef. Date: ${fullDate}.
     
-    RÈGLES D'INTENTION STRICTES (NE PAS CONFONDRE LISTE ET STOCK):
-    
-    1. EXÉCUTION DIRECTE (ZERO QUESTIONS) :
-       - NE DEMANDE JAMAIS la date de péremption si l'utilisateur ne l'a pas donnée. (Laisse null).
-       - NE DEMANDE JAMAIS la quantité si elle n'est pas précisée. (Mets "1").
-       - Exécute l'action IMMEDIATEMENT.
-    
-    2. LISTE DE COURSES (FUTUR/BESOIN/MANQUE): 
-       - Déclencheurs : "Ajoute du lait", "Il me faut...", "On n'a plus de...", "Besoin de...", "Ajoute à la liste", "Achète...".
-       - ACTION : UTILISE 'ajouterAuPanier'.
-       - NOTE : "Ajoute des pommes" (sans contexte de stock) -> LISTE par défaut.
+    RÈGLES D'INTENTION STRICTES :
+    1. EXÉCUTION DIRECTE : Pas de questions sur la date de péremption ou la quantité si non fournies.
+    2. LISTE DE COURSES : "Ajoute du lait" -> 'ajouterAuPanier'.
+    3. GESTION STOCK : "J'ai acheté..." -> 'ajouterAuStock'. "J'ai fini..." -> 'retirerDuStock'.
+    4. RECETTES : Quand tu génères une recette, utilise 'sauvegarderRecette' avec une description appétissante.
 
-    3. GESTION STOCK (PASSÉ/ACTION FAITE): 
-       - Déclencheurs : "J'ai acheté...", "J'ai pris...", "Mets dans le frigo", "Ajoute au stock", "Je reviens des courses", "J'ai [ingrédient]".
-       - ACTION : UTILISE 'ajouterAuStock'.
-       - IMPORTANT : Ne cherche pas à savoir la date. Ajoute direct.
-       - Déclencheurs Retrait : "J'ai fini...", "Il n'y a plus de [item] DANS LE FRIGO", "J'ai jeté".
-       - ACTION : UTILISE 'retirerDuStock'.
-
-    4. GÉNÉRATION & SAUVEGARDE AUTOMATIQUE DE RECETTE :
-       - QUAND TU GÉNÈRES UNE RECETTE :
-         1. Affiche la recette en texte.
-         2. APPELLE IMMÉDIATEMENT 'sauvegarderRecette'.
-         3. IMPORTANT: Remplis le champ 'description' avec une phrase alléchante et 'prepTime' avec une estimation.
-
-    CONTEXTE STOCK ACTUEL : 
-    ${inventoryContext}
-
-    CONTEXTE LISTE COURSES : 
-    ${shoppingContext}
-    
+    CONTEXTE STOCK : ${inventoryContext}
+    CONTEXTE LISTE : ${shoppingContext}
     ISO Date: ${isoDate}.
   `;
 
@@ -280,7 +249,6 @@ export const chatWithChefStream = async function* (
 // --- 2. Text-to-Speech (TTS) ---
 
 export const generateSpeech = async (text: string): Promise<string | null> => {
-  const ai = getAiClient();
   const cleanText = text
     .replace(/\*\*(.*?)\*\*/g, "$1") 
     .replace(/__(.*?)__/g, "$1") 
@@ -288,12 +256,11 @@ export const generateSpeech = async (text: string): Promise<string | null> => {
     .replace(/^\s*[-*]\s+/gm, "") 
     .trim();
 
-  const hasContent = /[a-zA-Z0-9éèàùçêîôûëïüÿñæœÉÈÀÙÇÊÎÔÛËÏÜŸÑÆŒ]/.test(cleanText);
-  if (!cleanText || !hasContent) return null;
+  if (!cleanText || !/[a-zA-Z0-9]/.test(cleanText)) return null;
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash-exp", // Utilisation de 2.0-flash-exp pour l'audio output
+      model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: cleanText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -317,7 +284,7 @@ export const playTextAsAudio = async (text: string, onEnded?: () => void): Promi
   try {
     stopAudio();
     const base64Audio = await generateSpeech(text);
-    if (!base64Audio) { if (onEnded) onEnded(); return; }
+    if (!base64Audio) { onEnded?.(); return; }
 
     if (!globalAudioContext) {
       globalAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -329,12 +296,12 @@ export const playTextAsAudio = async (text: string, onEnded?: () => void): Promi
     const source = globalAudioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(globalAudioContext.destination);
-    source.onended = () => { if (onEnded) onEnded(); };
+    source.onended = () => { onEnded?.(); };
     source.start(0);
     globalSource = source;
   } catch (error) {
     console.error("Audio playback error", error);
-    if (onEnded) onEnded();
+    onEnded?.();
   }
 };
 
@@ -342,7 +309,7 @@ export const stopAudio = () => {
     if (globalSource) { try { globalSource.stop(); } catch (e) {} globalSource = null; }
 };
 
-// --- 3. Live Transcription (MOBILE OPTIMIZED) ---
+// --- 3. Live Transcription ---
 
 declare global {
   interface Window {
@@ -355,32 +322,18 @@ export const startLiveTranscription = async (
     onError: (err: any) => void,
     onVolumeChange?: (volume: number) => void
 ) => {
-    let ai;
-    try {
-        ai = getAiClient();
-    } catch (e) {
-        onError("API_KEY_MISSING");
-        return () => {};
-    }
-
     const TARGET_SAMPLE_RATE = 16000;
-    
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     const audioContext = new AudioContextClass();
     
     if (audioContext.state === 'suspended') {
-        try { await audioContext.resume(); } catch (e) { console.error("Could not resume audio context", e); }
+        try { await audioContext.resume(); } catch (e) {}
     }
     
     let stream;
     try {
         stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: { 
-                channelCount: 1, 
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
+            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
         });
     } catch (e) {
         onError(e);
@@ -389,7 +342,7 @@ export const startLiveTranscription = async (
     
     const source = audioContext.createMediaStreamSource(stream);
     const gainNode = audioContext.createGain();
-    gainNode.gain.value = 1.5; 
+    gainNode.gain.value = 1.0; 
     
     const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
     window.__liveScriptProcessor = scriptProcessor;
@@ -400,34 +353,19 @@ export const startLiveTranscription = async (
 
     try {
         const sessionPromise = ai.live.connect({
-            model: 'gemini-2.0-flash-exp', // Utilisation de 2.0-flash-exp pour le Live API
+            model: 'gemini-2.5-flash-native-audio-preview-09-2025',
             callbacks: {
-                onopen: () => console.log("Live Connected"),
                 onmessage: (message: LiveServerMessage) => {
                     if (message.serverContent?.inputTranscription) {
                         const text = message.serverContent.inputTranscription.text;
                         if (text) onTranscriptionUpdate(text);
                     }
                 },
-                onclose: () => console.log("Live Closed"),
                 onerror: (err) => onError(err)
             },
             config: {
                 responseModalities: [Modality.AUDIO], 
-                generationConfig: { 
-                    temperature: 0 
-                },
                 speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-                // OPTIMIZED SYSTEM PROMPT FOR COOKING INGREDIENTS
-                systemInstruction: `
-                CONTEXTE: Transcription Speech-to-Text CULINAIRE.
-                TACHE: Transcrire la parole en texte EXACTEMENT.
-                
-                RÈGLES STRICTES:
-                1. ORTHOGRAPHE : "Pâtes" (pas pattes), "Steak" (pas stick), "Lait" (pas les).
-                2. NOMBRES : Écris TOUJOURS en CHIFFRES (ex: "3 oeufs", "1 litre", "250g").
-                3. NE PAS COUPER LES MOTS (ex: "steak" et pas "ste ak").
-                `,
                 inputAudioTranscription: {}, 
             }
         });
@@ -437,9 +375,7 @@ export const startLiveTranscription = async (
             
             if (onVolumeChange) {
                 let sum = 0;
-                for (let i = 0; i < inputData.length; i += 4) {
-                    sum += inputData[i] * inputData[i];
-                }
+                for (let i = 0; i < inputData.length; i += 4) sum += inputData[i] * inputData[i];
                 onVolumeChange(Math.sqrt(sum / (inputData.length / 4)));
             }
 
@@ -448,9 +384,7 @@ export const startLiveTranscription = async (
 
             sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: { mimeType: `audio/pcm;rate=${TARGET_SAMPLE_RATE}`, data: base64Data } });
-            }).catch(err => {
-                // Silent catch
-            });
+            }).catch(() => {});
         };
 
         return () => {
