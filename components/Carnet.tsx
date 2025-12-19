@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Recipe } from '../types';
 import { BookOpen, Clock, ChevronRight, Search, ChefHat, Volume2, StopCircle, Heart, Pin, Loader2, Trash2, AlignLeft, RefreshCcw, XCircle, ArrowLeft } from 'lucide-react';
-import { playTextAsAudio, stopAudio } from '../services/geminiService';
+// Correcting import to remove stopAudio which is not exported from the geminiService
+import { playTextAsAudio } from '../services/geminiService';
 
 interface Props {
   savedRecipes: Recipe[];

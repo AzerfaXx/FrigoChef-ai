@@ -118,6 +118,16 @@ function downsampleTo16k(input: Float32Array, sampleRate: number): Int16Array {
     return result;
 }
 
+// --- API Client Initialization ---
+
+const getAIClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API_KEY_MISSING");
+  }
+  return new GoogleGenAI({ apiKey });
+};
+
 // --- Chat & Generation ---
 
 export const chatWithChefStream = async function* (
@@ -127,10 +137,10 @@ export const chatWithChefStream = async function* (
   shoppingList: ShoppingItem[],
   useSearch: boolean = false
 ) {
-  // Always create a new instance inside the call as per guidelines
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = "gemini-3-flash-preview"; 
-  const activeTools = useSearch ? [...toolsConfig, { googleSearch: {} }] : toolsConfig;
+  const ai = getAIClient();
+  const model = 'gemini-3-flash-preview'; 
+  // According to guidelines: "Only googleSearch is permitted. Do not use it with other tools."
+  const activeTools = useSearch ? [{ googleSearch: {} }] : toolsConfig;
   
   const systemInstruction = `
     Tu es FrigoChef. Aide l'utilisateur à cuisiner.
@@ -151,10 +161,10 @@ export const chatWithChefStream = async function* (
 };
 
 export const generateRecipePlan = async (ingredients: Ingredient[], request: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAIClient();
   const prompt = `Inventaire: ${ingredients.map(i => i.name).join(', ')}. Demande: ${request}`;
   const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview",
+    model: 'gemini-3-pro-preview',
     contents: prompt,
   });
   return response.text || "Erreur de génération.";
@@ -163,13 +173,13 @@ export const generateRecipePlan = async (ingredients: Ingredient[], request: str
 // --- TTS Engine ---
 
 export const generateSpeech = async (text: string): Promise<string | null> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const cleanText = text.replace(/[#*_]/g, '').trim();
-  if (!cleanText || !/[a-zA-Z]/.test(cleanText)) return null;
-
   try {
+    const ai = getAIClient();
+    const cleanText = text.replace(/[#*_]/g, '').trim();
+    if (!cleanText || !/[a-zA-Z]/.test(cleanText)) return null;
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
+      model: 'gemini-2.5-flash-preview-tts',
       contents: [{ parts: [{ text: cleanText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -199,57 +209,59 @@ export const playTextAsAudio = async (text: string, onEnded?: () => void) => {
   source.start(0);
 };
 
-export const stopAudio = () => { /* Optionnel */ };
-
-// --- Live API (Transcription) ---
-
 export const startLiveTranscription = async (
     onUpdate: (text: string) => void,
     onError: (err: any) => void,
     onVolume?: (volume: number) => void
 ) => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    try {
+        const ai = getAIClient();
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = audioContext.createMediaStreamSource(stream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-    const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        callbacks: {
-            onopen: () => console.debug('Live opened'),
-            onmessage: (msg: LiveServerMessage) => {
-                if (msg.serverContent?.inputTranscription) onUpdate(msg.serverContent.inputTranscription.text);
+        const sessionPromise = ai.live.connect({
+            model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+            callbacks: {
+                onopen: () => console.debug('Live opened'),
+                onmessage: (msg: LiveServerMessage) => {
+                    if (msg.serverContent?.inputTranscription) onUpdate(msg.serverContent.inputTranscription.text);
+                },
+                onerror: onError,
+                onclose: () => console.debug('Live closed')
             },
-            onerror: onError,
-            onclose: () => console.debug('Live closed')
-        },
-        config: {
-            responseModalities: [Modality.AUDIO],
-            inputAudioTranscription: {},
-        }
-    });
+            config: {
+                responseModalities: [Modality.AUDIO],
+                inputAudioTranscription: {},
+            }
+        });
 
-    processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        if (onVolume) {
-            let sum = 0;
-            for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
-            onVolume(Math.sqrt(sum / inputData.length));
-        }
-        const pcm = downsampleTo16k(inputData, audioContext.sampleRate);
-        const data = encode(new Uint8Array(pcm.buffer));
-        sessionPromise.then(s => s.sendRealtimeInput({ media: { data, mimeType: 'audio/pcm;rate=16000' } }));
-    };
+        processor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            if (onVolume) {
+                let sum = 0;
+                for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+                onVolume(Math.sqrt(sum / inputData.length));
+            }
+            const pcm = downsampleTo16k(inputData, audioContext.sampleRate);
+            const data = encode(new Uint8Array(pcm.buffer));
+            // Ensuring sendRealtimeInput is initiated after the session promise resolves to prevent race conditions.
+            sessionPromise.then(s => s.sendRealtimeInput({ media: { data, mimeType: 'audio/pcm;rate=16000' } }));
+        };
 
-    source.connect(processor);
-    processor.connect(audioContext.destination);
+        source.connect(processor);
+        processor.connect(audioContext.destination);
 
-    return () => {
-        stream.getTracks().forEach(t => t.stop());
-        processor.disconnect();
-        source.disconnect();
-        audioContext.close();
-        sessionPromise.then(s => s.close());
-    };
+        return () => {
+            stream.getTracks().forEach(t => t.stop());
+            processor.disconnect();
+            source.disconnect();
+            audioContext.close();
+            sessionPromise.then(s => s.close());
+        };
+    } catch (e) {
+        onError(e);
+        return () => {};
+    }
 };
