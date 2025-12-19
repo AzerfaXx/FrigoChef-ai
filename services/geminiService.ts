@@ -1,9 +1,5 @@
-
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { Ingredient, ShoppingItem } from "../types";
-
-// Initialize the client once with the environment key
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- Tool Definitions ---
 
@@ -131,7 +127,9 @@ export const chatWithChefStream = async function* (
   shoppingList: ShoppingItem[],
   useSearch: boolean = false
 ) {
-  const model = "gemini-3-flash-preview"; // Modèle de pointe pour la discussion
+  // Always create a new instance inside the call as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const model = "gemini-3-flash-preview"; 
   const activeTools = useSearch ? [...toolsConfig, { googleSearch: {} }] : toolsConfig;
   
   const systemInstruction = `
@@ -152,8 +150,8 @@ export const chatWithChefStream = async function* (
   for await (const chunk of stream) yield chunk;
 };
 
-// Use gemini-3-pro-preview for complex reasoning tasks like meal planning
 export const generateRecipePlan = async (ingredients: Ingredient[], request: string): Promise<string> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Inventaire: ${ingredients.map(i => i.name).join(', ')}. Demande: ${request}`;
   const response = await ai.models.generateContent({
     model: "gemini-3-pro-preview",
@@ -162,14 +160,14 @@ export const generateRecipePlan = async (ingredients: Ingredient[], request: str
   return response.text || "Erreur de génération.";
 };
 
-// --- TTS Engine (Correction 400 Modality) ---
+// --- TTS Engine ---
 
 export const generateSpeech = async (text: string): Promise<string | null> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const cleanText = text.replace(/[#*_]/g, '').trim();
   if (!cleanText || !/[a-zA-Z]/.test(cleanText)) return null;
 
   try {
-    // On utilise explicitement le modèle TTS dédié
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: cleanText }] }],
@@ -182,7 +180,7 @@ export const generateSpeech = async (text: string): Promise<string | null> => {
     });
     return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
   } catch (error) {
-    console.warn("Erreur TTS critique détectée, passage en mode silencieux.", error);
+    console.warn("TTS Error", error);
     return null;
   }
 };
@@ -201,17 +199,16 @@ export const playTextAsAudio = async (text: string, onEnded?: () => void) => {
   source.start(0);
 };
 
-export const stopAudio = () => { /* Optionnel selon implémentation globale */ };
+export const stopAudio = () => { /* Optionnel */ };
 
 // --- Live API (Transcription) ---
 
-// Updated to accept an optional onVolume callback to resolve "Expected 2 arguments, but got 3" error in RecipeAssistant.tsx.
-// Also added required callbacks (onopen, onclose) as per Live API guidelines.
 export const startLiveTranscription = async (
     onUpdate: (text: string) => void,
     onError: (err: any) => void,
     onVolume?: (volume: number) => void
 ) => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 16000});
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const source = audioContext.createMediaStreamSource(stream);
@@ -220,20 +217,12 @@ export const startLiveTranscription = async (
     const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         callbacks: {
-            onopen: () => {
-              console.debug('live session opened');
-            },
+            onopen: () => console.debug('Live opened'),
             onmessage: (msg: LiveServerMessage) => {
-                if (msg.serverContent?.inputTranscription) {
-                  onUpdate(msg.serverContent.inputTranscription.text);
-                }
+                if (msg.serverContent?.inputTranscription) onUpdate(msg.serverContent.inputTranscription.text);
             },
-            onerror: (e: ErrorEvent) => {
-                onError(e);
-            },
-            onclose: (e: CloseEvent) => {
-                console.debug('live session closed');
-            }
+            onerror: onError,
+            onclose: () => console.debug('Live closed')
         },
         config: {
             responseModalities: [Modality.AUDIO],
@@ -243,20 +232,13 @@ export const startLiveTranscription = async (
 
     processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
-
-        // Calculate RMS volume for UI feedback
         if (onVolume) {
             let sum = 0;
-            for (let i = 0; i < inputData.length; i++) {
-                sum += inputData[i] * inputData[i];
-            }
+            for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
             onVolume(Math.sqrt(sum / inputData.length));
         }
-
         const pcm = downsampleTo16k(inputData, audioContext.sampleRate);
         const data = encode(new Uint8Array(pcm.buffer));
-        
-        // Critical: Always use the session promise to prevent stale closures and ensure the connection is ready.
         sessionPromise.then(s => s.sendRealtimeInput({ media: { data, mimeType: 'audio/pcm;rate=16000' } }));
     };
 
